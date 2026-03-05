@@ -1,0 +1,31 @@
+[package]
+name = "portlang-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "portlang"
+path = "src/main.rs"
+
+[dependencies]
+portlang-core = { workspace = true }
+portlang-config = { workspace = true }
+portlang-runtime = { workspace = true }
+portlang-trajectory = { workspace = true }
+portlang-adapt = { workspace = true }
+portlang-provider-anthropic = { workspace = true }
+portlang-provider-openrouter = { workspace = true }
+portlang-check = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+indicatif = "0.18"
+walkdir = { workspace = true }

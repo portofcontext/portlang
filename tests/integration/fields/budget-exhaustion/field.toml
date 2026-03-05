@@ -1,0 +1,15 @@
+name = "budget-exhaustion"
+description = "Test field with very low token budget"
+goal = "Keep generating text until the budget runs out. Write a very long story with many paragraphs."
+
+[model]
+name = "claude-sonnet-4-5"
+temperature = 1.0
+
+[environment]
+type = "local"
+root = "."
+
+[context]
+max_tokens = 1000
+max_cost = "$0.10"

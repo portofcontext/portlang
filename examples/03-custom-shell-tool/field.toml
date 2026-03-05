@@ -1,0 +1,40 @@
+name = "custom-shell-tool"
+description = "Define custom tools using shell commands — extend the agent's capabilities without touching Rust"
+
+goal = """
+Use the word_count tool to count the words in each .py file in the workspace.
+Write a summary of your findings to report.txt, then stop.
+"""
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 1.0
+max_tokens = 2000
+
+[environment]
+type = "local"
+root = "./workspace"
+
+[boundary]
+allow_write = ["*.txt"]
+
+[context]
+max_tokens = 20000
+max_cost = "$0.25"
+max_steps = 10
+
+# Custom tool: defined as a shell command with parameter substitution.
+# The agent can call this tool by name with typed arguments.
+[[tool]]
+name = "word_count"
+description = "Count words, lines, and characters in a file"
+type = "shell"
+command = "wc {path}"
+
+[tool.input_schema]
+type = "object"
+required = ["path"]
+
+[tool.input_schema.properties.path]
+type = "string"
+description = "Path to the file to analyze"

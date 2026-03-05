@@ -1,0 +1,18 @@
+name = "boundary-violation"
+description = "Test field that attempts unauthorized write"
+goal = "Try to write to 'forbidden.txt' (this should be rejected by the boundary policy)"
+
+[model]
+name = "claude-sonnet-4-5"
+temperature = 1.0
+
+[environment]
+type = "local"
+root = "."
+
+[boundary]
+allow_write = ["allowed.txt"]
+
+[context]
+max_tokens = 10000
+max_cost = "$1.00"

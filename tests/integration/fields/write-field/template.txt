@@ -1,0 +1,2 @@
+This is a template file.
+It should be copied to output.txt.

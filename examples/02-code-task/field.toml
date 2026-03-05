@@ -1,0 +1,43 @@
+name = "code-task"
+description = "A real coding task with a verifier — agent writes code and tests, verifier confirms they pass"
+
+goal = """
+Create a Python program that analyzes text files and reports statistics.
+
+Your program should:
+1. Read a text file and count total words, unique words, average word length, and top 5 most common words
+2. Save the analysis to a JSON file
+3. Accept arguments: python analyzer.py input.txt output.json
+4. Include pytest tests in test_analyzer.py that verify all functionality
+5. Include a requirements.txt listing pytest
+
+Create exactly three files: analyzer.py, test_analyzer.py, requirements.txt.
+Once all three exist, stop — the verifier will run the tests automatically.
+"""
+
+re_observation = [
+    "echo '=== workspace ===' && ls -1 *.py *.txt 2>/dev/null | cat"
+]
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 1.0
+max_tokens = 4000
+
+[environment]
+type = "local"
+root = "./workspace"
+
+[boundary]
+allow_write = ["*.py", "*.txt", "requirements.txt"]
+
+[context]
+max_tokens = 80000
+max_cost = "$1.00"
+max_steps = 30
+
+[[verifiers]]
+name = "pytest"
+command = "python -m pytest test_analyzer.py -v 2>&1"
+trigger = "on_stop"
+description = "All tests must pass"

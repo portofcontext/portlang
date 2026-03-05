@@ -1,0 +1,10 @@
+[package]
+name = "portlang-provider-openai"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+portlang-core = { workspace = true }

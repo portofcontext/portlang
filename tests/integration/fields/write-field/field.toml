@@ -1,0 +1,24 @@
+name = "write-field"
+description = "Test field that writes a file and verifies it"
+goal = "Read 'template.txt', write its contents to 'output.txt', then stop."
+
+[model]
+name = "claude-sonnet-4-5"
+temperature = 1.0
+
+[environment]
+type = "local"
+root = "."
+
+[boundary]
+allow_write = ["output.txt", "*.log"]
+
+[context]
+max_tokens = 10000
+max_cost = "$1.00"
+
+[[verifiers]]
+name = "check-output"
+command = "test -f output.txt"
+trigger = "on_stop"
+description = "Verify that output.txt was created"

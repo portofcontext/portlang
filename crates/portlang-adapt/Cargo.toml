@@ -1,0 +1,14 @@
+[package]
+name = "portlang-adapt"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+portlang-core = { workspace = true }
+portlang-trajectory = { path = "../portlang-trajectory" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }

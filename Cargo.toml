@@ -1,0 +1,60 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/portlang-core",
+    "crates/portlang-config",
+    "crates/portlang-check",
+    "crates/portlang-runtime",
+    "crates/portlang-trajectory",
+    "crates/portlang-adapt",
+    "crates/portlang-pipeline",
+    "crates/portlang-provider-anthropic",
+    "crates/portlang-provider-openrouter",
+    "crates/portlang-provider-openai",
+    "crates/portlang-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Patrick Kelly"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/patrickkelly/portofcontext"
+
+[workspace.dependencies]
+# Core dependencies
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+anyhow = "1.0"
+thiserror = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "1"
+
+# CLI dependencies
+clap = { version = "4.4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# HTTP client for model providers
+reqwest = { version = "0.13", features = ["json"] }
+
+# File system and glob
+glob = "0.3"
+walkdir = "2.4"
+
+# Time and cost tracking
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.10"
+
+# Internal workspace crates
+portlang-core = { path = "crates/portlang-core" }
+portlang-config = { path = "crates/portlang-config" }
+portlang-check = { path = "crates/portlang-check" }
+portlang-runtime = { path = "crates/portlang-runtime" }
+portlang-trajectory = { path = "crates/portlang-trajectory" }
+portlang-adapt = { path = "crates/portlang-adapt" }
+portlang-pipeline = { path = "crates/portlang-pipeline" }
+portlang-provider-anthropic = { path = "crates/portlang-provider-anthropic" }
+portlang-provider-openrouter = { path = "crates/portlang-provider-openrouter" }
+portlang-provider-openai = { path = "crates/portlang-provider-openai" }

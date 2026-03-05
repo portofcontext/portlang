@@ -1,0 +1,7 @@
+target/
+demo/workspace
+
+skills-lock.json
+
+.claude/
+.agents/

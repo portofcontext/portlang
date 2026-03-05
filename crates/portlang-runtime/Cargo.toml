@@ -1,0 +1,22 @@
+[package]
+name = "portlang-runtime"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+portlang-core = { workspace = true }
+portlang-config = { workspace = true }
+portlang-provider-anthropic = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde_json = { workspace = true }
+walkdir = { workspace = true }
+glob = { workspace = true }
+tracing = { workspace = true }
+uuid = { version = "1.11", features = ["v4"] }
+shell-escape = "0.1"
