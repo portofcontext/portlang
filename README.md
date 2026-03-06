@@ -37,11 +37,11 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ./target/release/portlang init
 ```
 
-## Example: Scoped Bug Fix with Verification
+## Example: Data Processing with Multi-Layer Verification
 
 ```toml
-name = "fix-jwt-validation"
-goal = "Fix JWT expiration bug in auth.py—exp claim compared as string, not int"
+name = "process-sales-data"
+goal = "Read sales.csv, calculate revenue per region, output summary.json"
 
 [model]
 name = "anthropic/claude-sonnet-4.6"
@@ -51,32 +51,51 @@ type = "local"
 root = "./workspace"
 
 [boundary]
-allow_write = ["auth.py", "tests/**"]  # Only these files
-network = "deny"
-max_steps = 30
-max_cost = "$2.00"
+allow_write = ["summary.json"]          # Only output file
+allow_read = ["sales.csv"]              # Only input file
+network = "deny"                        # No external calls
+max_steps = 20
+max_cost = "$1.00"
 
 [context]
 max_tokens = 32000                      # Hard ceiling
-re_observation = ["git diff --stat"]    # Keep context fresh
 
 [[verifiers]]
-name = "tests-pass"
-command = "pytest tests/test_auth.py -x"
-trigger = "on_stop"                     # Runs when agent stops
-
-[[verifiers]]
-name = "scope-guard"
-command = "git diff --name-only | grep -qvE '^(auth\\.py|tests/)'"
+name = "output-exists"
+command = "test -f summary.json"
 trigger = "on_stop"
+description = "Output file must exist"
+
+[[verifiers]]
+name = "valid-json"
+command = "python -m json.tool summary.json > /dev/null"
+trigger = "on_stop"
+description = "Output must be valid JSON"
+
+[[verifiers]]
+name = "correct-schema"
+command = """
+python -c "
+import json
+with open('summary.json') as f:
+    data = json.load(f)
+required = ['North', 'South', 'East', 'West']
+assert all(k in data for k in required), 'Missing regions'
+assert all(isinstance(v, (int, float)) for v in data.values()), 'Invalid values'
+"
+"""
+trigger = "on_stop"
+description = "JSON must have all regions with numeric revenues"
 ```
 
 **What this does:**
 
-- **Boundaries**: Agent can only write to auth.py and tests/—violations physically blocked by sandbox
-- **Verifiers**: Tests must pass AND no files outside scope can change
-- **Budget**: Hard 32k token ceiling—when reached, run terminates
+- **Boundaries**: Agent can only write summary.json, read sales.csv, zero network access
+- **Verifiers**: Three-layer verification (file exists → valid JSON → correct schema)
+- **Budget**: Hard 32k token ceiling, terminates when exceeded
 - **Trajectory**: Every step recorded, replayable with `portlang replay <id>`
+
+**Verifiers run in order and stop on first failure**, giving precise feedback about what went wrong.
 
 Run 10 times to measure reliability:
 
