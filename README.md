@@ -109,30 +109,6 @@ portlang diff <id-a> <id-b>       # Find divergence point
 portlang report <field>           # Adaptation analysis across runs
 ```
 
-## Architecture
-
-```
-crates/
-  portlang-core/        Field, Trajectory, Boundary types
-  portlang-config/      TOML parser with Python auto-discovery
-  portlang-runtime/     Agent loop, sandbox, tool dispatch
-  portlang-trajectory/  Storage, replay, diff, query
-  portlang-adapt/       Statistical analysis, convergence reports
-  portlang-cli/         CLI commands
-```
-
-## Testing
-
-```bash
-cargo test --workspace
-```
-
 ## More
 
 - [Examples](examples/) - Five examples from minimal to complex
-- [MANIFESTO.html](MANIFESTO.html) - Theoretical foundations and design principles
-- Trajectories saved to `~/.portlang/trajectories/`
-
----
-
-When the search fails, you don't improve the prompt—you sharpen the space.
