@@ -236,12 +236,14 @@
         <div class="subtitle">An Environment-First Agent Framework</div>
         <div style="margin: 1rem 0;">
             <a href="https://portofcontext.com">
-                <img src="https://img.shields.io/badge/MADE%20BY-Port%20of%20Context-1e40af.svg?style=for-the-badge&labelColor=0c4a6e" alt="Made by Port of Context">
+                <img src="https://img.shields.io/badge/MADE%20BY-Port%20of%20Context-1e40af.svg?style=for-the-badge&labelColor=0c4a6e"
+                    alt="Made by Port of Context">
             </a>
         </div>
         <div class="meta">
             Technical Manifesto & Design Document (Draft 0.2, March 2026)<br>
-            <a href="https://github.com/portofcontext/portlang" style="color: var(--harbor-blue); text-decoration: none;">github.com/portofcontext/portlang</a>
+            <a href="https://github.com/portofcontext/portlang"
+                style="color: var(--harbor-blue); text-decoration: none;">github.com/portofcontext/portlang</a>
         </div>
     </header>
 
@@ -308,7 +310,8 @@
         <ul>
             <li><strong>Reward-chasing:</strong> The model maximizes whatever proxy defined the reward function.
                 Whatever that proxy measured becomes the objective. Whatever it left unmeasured remains open space.</li>
-            <li><strong>Proxy mismatch:</strong> The reward function measures what the model provider could measure at training time. Models have been documented tracing through call stacks to find pre-computed answers, or
+            <li><strong>Proxy mismatch:</strong> The reward function measures what the model provider could measure at
+                training time. Models have been documented tracing through call stacks to find pre-computed answers, or
                 circling endlessly for bonus points instead of finishing the race.</li>
             <li><strong>Policy opacity:</strong> You did not design the reward function, you do not know its full
                 specification, and you can only observe the behavior it produces. The trained policy is the one thing
@@ -427,7 +430,8 @@
             <h4>Context Policy</h4>
             <p>The context policy has two components: a token budget (hard ceiling on context window size) and a
                 re-observation schedule (commands that run before each step to keep context fresh).</p>
-            <p>When the token budget is reached, the run terminates. Automatic summarization and compression are disabled by default.
+            <p>When the token budget is reached, the run terminates. Automatic summarization and compression are
+                disabled by default.
                 Re-observations keep the context accurate but consume budget.</p>
         </div>
 
@@ -490,7 +494,8 @@ max_steps = 30
 max_cost = "$2.00"
 sandbox = "container"</code></pre>
 
-        <p>Note the structure. The developer declared a search space: what the agent can see (environment), what success looks like (verifiers), how much
+        <p>Note the structure. The developer declared a search space: what the agent can see (environment), what success
+            looks like (verifiers), how much
             context is available (budget), and what is physically impossible (boundary). The runtime executes the
             search.</p>
     </section>
@@ -504,7 +509,8 @@ sandbox = "container"</code></pre>
             snapshot is mounted (read-only base with copy-on-write layer for mutations), tool manifest determines which
             handlers are registered, and network policy is enforced at the namespace level.</p>
 
-        <p>The sandbox translates boundaries into topology. For structured tool calls (read, write), the runtime inspects
+        <p>The sandbox translates boundaries into topology. For structured tool calls (read, write), the runtime
+            inspects
             parameters and rejects violations. For bash, enforcement happens at OS level: the container has no network
             interface if <code>network = "deny_all"</code>, and the filesystem mount is read-only except for allowed
             paths.</p>
@@ -624,10 +630,12 @@ sandbox = "container"</code></pre>
 
         <h3>Parallel Execution</h3>
         <p>Independent fields can run in parallel. Parallel fields are the natural pattern for tasks that decompose into
-            independent sub-problems. Example: compiling different files where each compilation is an independent field with
+            independent sub-problems. Example: compiling different files where each compilation is an independent field
+            with
             a clear verifier.</p>
 
-        <p>Parallel fields share nothing by default. If they need shared artifacts, it happens through explicit shared volumes
+        <p>Parallel fields share nothing by default. If they need shared artifacts, it happens through explicit shared
+            volumes
             with appropriate boundary constraints.</p>
 
         <h3>Gating</h3>
@@ -638,7 +646,6 @@ sandbox = "container"</code></pre>
 
     <section id="limitations">
         <h2>X. What This Does Not Solve</h2>
-        <p>Intellectual honesty requires stating the boundaries of the framework's claims.</p>
 
         <div class="principle">
             <h4>Proxy mismatch is inherent</h4>
@@ -650,7 +657,8 @@ sandbox = "container"</code></pre>
         <div class="principle">
             <h4>Policy opacity remains</h4>
             <p>The trained policy is a black box. The framework gives you every lever except the one inside the model.
-                When two signals in the context window conflict, the policy resolves them according to its training. How it resolves conflicts remains partially opaque.</p>
+                When two signals in the context window conflict, the policy resolves them according to its training. How
+                it resolves conflicts remains partially opaque.</p>
         </div>
 
         <div class="principle">
@@ -664,14 +672,15 @@ sandbox = "container"</code></pre>
             <h4>Novel tasks remain hard</h4>
             <p>The framework works well on tasks with clear verifiers: coding, data transformation, structured output
                 generation. Tasks where success is hard to specify (creative work, open-ended research, judgment calls)
-                have weak verifiers. Weak verifiers produce weak runtime reward signals. Weak signals produce poorly guided search.</p>
+                have weak verifiers. Weak verifiers produce weak runtime reward signals. Weak signals produce poorly
+                guided search.</p>
         </div>
 
         <div class="principle">
             <h4>Coordination at scale is unsolved</h4>
             <p>Pipeline and parallel execution patterns handle simple composition. Complex multi-agent coordination
-                (dynamic task allocation, negotiation, adaptive decomposition) remains an open problem. The framework
-                provides isolation primitives that prevent worst failure modes. It does not solve coordination.</p>
+                (dynamic task allocation, negotiation, adaptive decomposition) is not yet solved here. The framework
+                provides isolation primitives that prevent the worst failure modes. It does not solve coordination.</p>
         </div>
 
         <div class="principle">
@@ -685,8 +694,7 @@ sandbox = "container"</code></pre>
         <div class="divider">• • •</div>
 
         <p>The purpose of this document is to establish a foundation: a framework that takes seriously what we know
-            about how these systems work and builds engineering discipline around it. <strong>The agent is a search. The
-                environment is the product. The trajectory is the data.</strong> Everything else follows.</p>
+            about how these systems work and builds engineering discipline around it.
     </section>
 
     <footer>
