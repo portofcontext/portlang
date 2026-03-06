@@ -6,6 +6,10 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+code-mode = ["dep:pctx_code_mode"]
+
 [dependencies]
 portlang-core = { workspace = true }
 portlang-config = { workspace = true }
@@ -20,3 +24,6 @@ glob = { workspace = true }
 tracing = { workspace = true }
 uuid = { version = "1.11", features = ["v4"] }
 shell-escape = "0.1"
+
+# Optional: Code Mode support
+pctx_code_mode = { version = "0.2.3", optional = true }

@@ -6,6 +6,9 @@ use crate::sandbox::create_sandbox;
 use crate::tools::{
     GlobHandler, PythonToolHandler, ReadHandler, ShellCommandHandler, ToolRegistry, WriteHandler,
 };
+
+#[cfg(feature = "code-mode")]
+use crate::tools::CodeModeHandler;
 use crate::verifier_runner::run_verifiers;
 use portlang_core::*;
 use std::sync::Arc;
@@ -28,6 +31,15 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
     registry.register(Arc::new(ReadHandler));
     registry.register(Arc::new(WriteHandler));
     registry.register(Arc::new(GlobHandler));
+
+    // Register Code Mode handler if enabled
+    #[cfg(feature = "code-mode")]
+    if let Some(ref code_mode_config) = field.code_mode {
+        if code_mode_config.enabled {
+            registry.register(Arc::new(CodeModeHandler::new()));
+            tracing::info!("Code Mode enabled");
+        }
+    }
 
     // Register custom tools from field config
     for custom_tool in &field.custom_tools {

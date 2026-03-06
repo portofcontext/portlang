@@ -4,4 +4,4 @@ demo/workspace
 skills-lock.json
 
 .claude/
-.agents/
+.agents/pctx-evals/*/workspace/

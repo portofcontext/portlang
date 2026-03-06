@@ -1,0 +1,64 @@
+name = "data-filtering-code-mode"
+description = "Filter and sort user data - demonstrates Code Mode token savings"
+
+goal = """
+You have access to data tools and user data in the workspace.
+
+Task:
+1. Load users.json (contains 100 user records)
+2. Filter to only users with age > 30
+3. Sort the results alphabetically by name
+4. Write the filtered and sorted list to output.json
+
+With Code Mode enabled, you can write TypeScript code to process this efficiently
+without passing all data through your context window.
+
+Stop once output.json is created correctly.
+"""
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.0
+max_tokens = 8000
+
+[environment]
+type = "local"
+root = "pctx-evals/01-data-filtering/workspace"
+
+[boundary]
+allow_write = ["output.json"]
+network = "deny"
+
+[context]
+max_tokens = 100000
+max_cost = "$1.00"
+max_steps = 15
+
+# Enable Code Mode
+[code_mode]
+enabled = true
+
+# Python tools exposed as TypeScript functions in Code Mode
+[[tool]]
+type = "python"
+script = "pctx-evals/01-data-filtering/tools/data_tools.py"
+
+[[verifiers]]
+name = "correct-filter"
+command = """
+python3 -c "
+import json
+with open('output.json') as f:
+    users = json.load(f)
+# Check count
+assert len(users) == 58, f'Expected 58 users, got {len(users)}'
+# Check all ages > 30
+assert all(u['age'] > 30 for u in users), 'Not all users have age > 30'
+# Check sorted by name
+names = [u['name'] for u in users]
+assert names == sorted(names), 'Users not sorted by name'
+print('✓ Correct filtering and sorting')
+"
+"""
+trigger = "on_stop"
+description = "Output contains correctly filtered and sorted users"

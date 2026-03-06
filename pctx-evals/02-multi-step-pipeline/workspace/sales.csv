@@ -1,0 +1,17 @@
+product,price,quantity,region
+Widget A,25.00,1000,North
+Widget B,30.00,800,South
+Widget C,45.00,600,East
+Widget D,20.00,1500,West
+Widget E,35.00,700,North
+Widget F,40.00,500,South
+Widget G,55.00,400,East
+Widget H,28.00,900,West
+Widget I,32.00,800,North
+Widget J,42.00,600,South
+Widget K,38.00,700,East
+Widget L,26.00,1100,West
+Widget M,48.00,500,North
+Widget N,33.00,900,South
+Widget O,41.00,800,East
+Widget P,29.00,700,West

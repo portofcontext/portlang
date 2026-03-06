@@ -22,6 +22,19 @@ pub struct RawField {
     pub goal: String,
     #[serde(default)]
     pub tool: Vec<RawCustomTool>,
+    #[serde(default)]
+    pub code_mode: Option<RawCodeMode>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawCodeMode {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -85,8 +98,10 @@ pub enum StringOrNumber {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawCustomTool {
-    pub name: String,
-    pub description: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
     #[serde(rename = "type")]
     pub tool_type: String,
     // Shell tool fields
@@ -97,5 +112,6 @@ pub struct RawCustomTool {
     pub script: Option<String>,
     #[serde(default)]
     pub function: Option<String>,
-    pub input_schema: serde_json::Value,
+    #[serde(default)]
+    pub input_schema: Option<serde_json::Value>,
 }

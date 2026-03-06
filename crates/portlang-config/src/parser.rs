@@ -96,19 +96,119 @@ fn convert_raw_field(raw: RawField) -> Result<Field> {
         .collect::<Result<Vec<_>>>()?;
 
     // Parse custom tools
-    let custom_tools = raw
-        .tool
-        .into_iter()
-        .map(|raw_tool| CustomTool {
-            name: raw_tool.name,
-            description: raw_tool.description,
-            tool_type: raw_tool.tool_type,
-            command: raw_tool.command,
-            script: raw_tool.script,
-            function: raw_tool.function,
-            input_schema: raw_tool.input_schema,
-        })
-        .collect();
+    let mut custom_tools = Vec::new();
+
+    for raw_tool in raw.tool {
+        match raw_tool.tool_type.as_str() {
+            "python" => {
+                // Check if we need to auto-discover from Python file
+                let needs_discovery = raw_tool.name.is_none() || raw_tool.input_schema.is_none();
+
+                if needs_discovery {
+                    // Must have script path for discovery
+                    let script_path = raw_tool.script.as_ref().ok_or_else(|| {
+                        FieldParseError::InvalidField(
+                            "Python tool missing 'script' field for auto-discovery".to_string(),
+                        )
+                    })?;
+
+                    // Extract tool metadata from Python file
+                    use crate::python_extractor::PythonToolExtractor;
+                    let mut extractor = PythonToolExtractor::new().map_err(|e| {
+                        FieldParseError::InvalidField(format!(
+                            "Failed to initialize Python extractor: {}",
+                            e
+                        ))
+                    })?;
+
+                    // If function name specified, extract only that function
+                    // Otherwise, extract all functions
+                    if let Some(ref function_name) = raw_tool.function {
+                        let tool_meta = extractor
+                            .extract_function(Path::new(script_path), function_name)
+                            .map_err(|e| {
+                                FieldParseError::InvalidField(format!(
+                                    "Failed to extract function '{}' from {}: {}",
+                                    function_name, script_path, e
+                                ))
+                            })?;
+
+                        custom_tools.push(CustomTool {
+                            name: raw_tool.name.unwrap_or(tool_meta.name.clone()),
+                            description: raw_tool
+                                .description
+                                .or(tool_meta.description)
+                                .unwrap_or_default(),
+                            tool_type: "python".to_string(),
+                            command: None,
+                            script: Some(script_path.clone()),
+                            function: Some(tool_meta.name),
+                            input_schema: raw_tool.input_schema.unwrap_or(tool_meta.input_schema),
+                        });
+                    } else {
+                        // Extract all functions from file
+                        let tools =
+                            extractor
+                                .extract_tools(Path::new(script_path))
+                                .map_err(|e| {
+                                    FieldParseError::InvalidField(format!(
+                                        "Failed to extract tools from {}: {}",
+                                        script_path, e
+                                    ))
+                                })?;
+
+                        for tool_meta in tools {
+                            custom_tools.push(CustomTool {
+                                name: tool_meta.name.clone(),
+                                description: tool_meta.description.unwrap_or_default(),
+                                tool_type: "python".to_string(),
+                                command: None,
+                                script: Some(script_path.clone()),
+                                function: Some(tool_meta.name),
+                                input_schema: tool_meta.input_schema,
+                            });
+                        }
+                    }
+                } else {
+                    // Manually defined - use provided values
+                    custom_tools.push(CustomTool {
+                        name: raw_tool.name.unwrap_or_default(),
+                        description: raw_tool.description.unwrap_or_default(),
+                        tool_type: raw_tool.tool_type,
+                        command: raw_tool.command,
+                        script: raw_tool.script,
+                        function: raw_tool.function,
+                        input_schema: raw_tool.input_schema.unwrap_or(serde_json::json!({})),
+                    });
+                }
+            }
+            "shell" => {
+                // Shell tools require manual definition
+                custom_tools.push(CustomTool {
+                    name: raw_tool.name.ok_or_else(|| {
+                        FieldParseError::InvalidField("Shell tool missing 'name' field".to_string())
+                    })?,
+                    description: raw_tool.description.unwrap_or_default(),
+                    tool_type: raw_tool.tool_type,
+                    command: raw_tool.command,
+                    script: raw_tool.script,
+                    function: raw_tool.function,
+                    input_schema: raw_tool.input_schema.unwrap_or(serde_json::json!({})),
+                });
+            }
+            _ => {
+                return Err(FieldParseError::InvalidField(format!(
+                    "Unknown tool type: {}",
+                    raw_tool.tool_type
+                )));
+            }
+        }
+    }
+
+    // Parse code mode config
+    let code_mode = raw.code_mode.map(|raw_code_mode| CodeModeConfig {
+        enabled: raw_code_mode.enabled,
+    });
 
     Ok(Field {
         name: raw.name,
@@ -122,6 +222,7 @@ fn convert_raw_field(raw: RawField) -> Result<Field> {
         environment_context: raw.environment_context,
         goal: raw.goal,
         custom_tools,
+        code_mode,
     })
 }
 
@@ -229,6 +330,84 @@ mod tests {
 
         let field = parse_field_from_str(toml).unwrap();
         assert_eq!(field.boundary.allow_write.len(), 2);
+    }
+
+    #[test]
+    fn test_python_auto_discovery() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // Create a temp Python file
+        let mut python_file = NamedTempFile::new().unwrap();
+        python_file
+            .write_all(
+                b"
+def greet(name: str) -> str:
+    \"\"\"Greet someone by name.\"\"\"
+    return f'Hello, {name}!'
+
+def add(x: int, y: int = 0) -> int:
+    \"\"\"Add two numbers.\"\"\"
+    return x + y
+",
+            )
+            .unwrap();
+
+        let python_path = python_file.path().to_string_lossy().to_string();
+
+        let toml = format!(
+            r#"
+            name = "test-field"
+            goal = "Test auto-discovery"
+
+            [model]
+            name = "claude-sonnet-4-5"
+
+            [environment]
+            type = "local"
+            root = "/tmp/test"
+
+            [[tool]]
+            type = "python"
+            script = "{}"
+        "#,
+            python_path
+        );
+
+        let field = parse_field_from_str(&toml).unwrap();
+
+        // Should discover both functions
+        assert_eq!(field.custom_tools.len(), 2);
+
+        // Check first tool (greet)
+        assert_eq!(field.custom_tools[0].name, "greet");
+        assert_eq!(field.custom_tools[0].description, "Greet someone by name.");
+        assert_eq!(field.custom_tools[0].tool_type, "python");
+        assert_eq!(
+            field.custom_tools[0].input_schema["properties"]["name"]["type"],
+            "string"
+        );
+        assert_eq!(
+            field.custom_tools[0].input_schema["required"],
+            serde_json::json!(["name"])
+        );
+
+        // Check second tool (add)
+        assert_eq!(field.custom_tools[1].name, "add");
+        assert_eq!(field.custom_tools[1].description, "Add two numbers.");
+        assert_eq!(
+            field.custom_tools[1].input_schema["properties"]["x"]["type"],
+            "integer"
+        );
+        assert_eq!(
+            field.custom_tools[1].input_schema["properties"]["y"]["type"],
+            "integer"
+        );
+        // Only x is required, y has default
+        assert_eq!(
+            field.custom_tools[1].input_schema["required"],
+            serde_json::json!(["x"])
+        );
     }
 
     #[test]

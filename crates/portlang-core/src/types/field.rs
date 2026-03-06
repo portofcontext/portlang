@@ -60,6 +60,22 @@ pub struct Field {
     /// Custom tools defined in the field
     #[serde(default)]
     pub custom_tools: Vec<CustomTool>,
+
+    /// Enable Code Mode execution (requires code-mode feature)
+    #[serde(default)]
+    pub code_mode: Option<CodeModeConfig>,
+}
+
+/// Code Mode configuration
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodeModeConfig {
+    /// Enable code mode
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Field {
@@ -76,6 +92,7 @@ impl Field {
             environment_context: None,
             goal,
             custom_tools: Vec::new(),
+            code_mode: None,
         }
     }
 
