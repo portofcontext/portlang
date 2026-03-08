@@ -37,6 +37,16 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ./target/release/portlang init
 ```
 
+### portlang skill
+
+Install the portlang skill for interactive guidance:
+
+```bash
+npx skills add https://github.com/portofcontext/skills --skill portlang
+```
+
+Get help with creating fields, defining verifiers, debugging trajectories, and optimizing agent reliability.
+
 ## Example: Data Processing with Multi-Layer Verification
 
 ```toml

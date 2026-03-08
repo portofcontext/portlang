@@ -6,9 +6,9 @@ Agent behavior is search. The developer's job is engineering the search space, n
 
 ---
 
-## How to read this document
+# PART I: THEORY & DESIGN
 
-This document serves two purposes. Sections I through III describe the theory and design principles. Sections IV through X describe the implementation. The theory sections exist so that every implementation decision can be traced back to a reason. If a design question comes up during development, the answer should be derivable from the principles.
+This part describes the theoretical foundations and design principles. Every implementation decision traces back to these.
 
 ---
 
@@ -98,60 +98,80 @@ Every concept in the framework reduces to one of six primitives. Each correspond
 
 A field is defined in `field.toml`, using TOML for the same reason Cargo does: human-readable, diff-friendly, clear structure-to-semantics mapping.
 
+Current syntax (as implemented):
+
 ```toml
-[field]
-name = "fix-jwt-validation"
-model = "claude-sonnet-4-5"
-prompt = """
-Fix the JWT expiration validation bug in auth.py.
-The exp claim is being compared as a string instead of
-an integer. Only modify auth.py and the test file.
-"""
+name = "my-task"
+goal = "Create hello.py that prints 'Hello, World!'"
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+max_tokens = 4000
 
 [environment]
-snapshot = "git:HEAD"
-tools = ["read", "write", "bash"]
-ephemeral = true
-
-[[verifier]]
-name = "tests-pass"
-run = "pytest tests/test_auth.py -x"
-when = "after_each_write"
-
-[[verifier]]
-name = "scope-guard"
-run = "git diff --name-only | grep -qvE '^(auth\\.py|tests/)' && exit 1 || exit 0"
-when = "before_terminal"
-
-[context]
-budget = 32_000
-re_observe = ["git diff --stat"]
+type = "local"
+root = "./workspace"
 
 [boundary]
-fs_write = ["auth.py", "tests/**"]
-network = "deny_all"
-max_steps = 30
-max_cost = "$2.00"
-sandbox = "container"
+allow_write = ["hello.py"]
+network = "deny"
+
+[context]
+max_tokens = 80000
+max_cost = "$1.00"
+max_steps = 10
+
+[[verifiers]]
+name = "works"
+command = "python hello.py 2>&1 | grep -q 'Hello, World!'"
+trigger = "on_stop"
+description = "Must print 'Hello, World!'"
 ```
 
 The developer declares a search space: what the agent can see (environment), what success looks like (verifiers), how much context is available (budget), and what is physically impossible (boundary). The runtime executes the search.
 
 ### Configuration semantics
 
-`[field]` declares metadata and the initial conditioning: the prompt and model. The prompt enters the context window at `s₀` and persists throughout. The model is the policy `πθ`.
+**Top-level fields:**
+- `name`: Field identifier (used in trajectory storage)
+- `goal`: Initial prompt that enters context window at step 0
+- `description`: Optional metadata
+- `re_observation`: Commands that run before each step to keep context fresh
 
-`[environment]` declares the territory. The snapshot specifies what exists on disk. The tool list specifies what system calls exist. Ephemeral environments are destroyed after the run.
+**[model]:**
+- `name`: Model identifier (e.g., `anthropic/claude-sonnet-4.6`)
+- `temperature`: Sampling temperature (default 1.0)
+- `max_tokens`: Max tokens per API call (not total budget)
 
-`[[verifier]]` declares reward signals. Each verifier has a name, a command, and a trigger condition. The runtime dispatches verifiers at the specified points and injects their output into the context window. Multiple verifiers compose conjunctively: all must pass for convergence.
+**[environment]:**
+- `type`: Currently only "local" supported
+- `root`: Working directory for agent (maps to /workspace in container)
 
-`[context]` declares the token budget and re-observation schedule. The budget is a hard ceiling. When reached, the run terminates. The re-observation schedule keeps the context fresh but consumes budget. There is no hidden summarization.
+**[boundary]:**
+- `allow_write`: Glob patterns for writable files
+- `allow_read`: Optional glob patterns for readable files
+- `network`: "deny" or "allow"
+- Built-in tools are always available (read, write, glob)
 
-`[boundary]` declares hard walls. Filesystem write permissions are glob patterns. Network policy is enforced at the sandbox level. Cost and step limits are circuit breakers. The `sandbox` field specifies the enforcement mechanism (container isolation for fields that include bash).
+**[context]:**
+- `max_tokens`: Hard ceiling on total tokens across entire run
+- `max_cost`: Hard ceiling on total cost
+- `max_steps`: Hard ceiling on step count
+
+**[[verifiers]]:**
+- `name`: Identifier
+- `command`: Shell command to run
+- `trigger`: When to run ("on_stop" currently implemented)
+- `description`: Injected into context on failure
+
+**[[tool]]:**
+- `type`: "shell", "python", or "mcp"
+- `script`: Path to script (for shell/python)
+- `command`/`args`: For MCP servers
 
 ### Parsing
 
-The `field.toml` parser should be strict: unknown keys are errors, not warnings. The configuration is the contract between the developer and the runtime.
+The `field.toml` parser is strict: unknown keys are errors. The configuration is the contract between developer and runtime.
 
 ## VI. The Runtime
 
@@ -159,7 +179,11 @@ The runtime turns a field definition into a trajectory.
 
 ### Sandbox architecture
 
-Each field executes in an isolated sandbox constructed from the environment definition: the filesystem snapshot is mounted (read-only base with a copy-on-write layer for allowed mutations), the tool manifest determines which system call handlers are registered, and the network policy is enforced at the network namespace level.
+Each field executes in an isolated Apple Container sandbox:
+- Filesystem: Copy-on-write layer over read-only base, scoped to boundary
+- Network: Isolated namespace, deny by default
+- Tools: Only explicitly allowed tools are available
+- Container lifecycle: Created on run start, destroyed on completion
 
 ### The agent loop
 
@@ -174,75 +198,7 @@ On each step:
 7. Record the step to the trajectory log.
 8. Check termination conditions (agent stopped, all verifiers pass, step limit, cost limit). If met, end. Otherwise, return to step 1.
 
-```rust
-pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> Trajectory {
-    let sandbox = create_sandbox(&field.environment, &field.boundary);
-    let mut context = ContextWindow::new(&field.prompt, field.context.budget_tokens);
-    let mut trajectory = Trajectory::new(field);
-    let mut step = 0u32;
-
-    loop {
-        // 1. Re-observe
-        for cmd in &field.context.re_observe {
-            let output = sandbox.run_command(cmd).await;
-            context.append_observation(&output);
-        }
-        if context.token_count() >= field.context.budget_tokens {
-            trajectory.finish(RunOutcome::BudgetExhausted);
-            break;
-        }
-
-        // 2. Invoke policy
-        let action = provider.complete(&context).await;
-
-        // 3. Boundary check
-        if let Err(violation) = sandbox.check_boundary(&action) {
-            context.append_rejection(&violation);
-            continue;
-        }
-
-        // 4. Dispatch
-        let response = sandbox.dispatch(&action).await;
-        context.append_response(&response);
-
-        // 5. Verifiers
-        let verifier_results = run_triggered_verifiers(
-            &field.verifiers, &action, &sandbox
-        ).await;
-        for (name, result) in &verifier_results {
-            context.append_verifier_result(name, result);
-        }
-
-        // 6. Budget check
-        if context.token_count() >= field.context.budget_tokens {
-            trajectory.finish(RunOutcome::BudgetExhausted);
-            break;
-        }
-
-        // 7. Record
-        trajectory.record_step(step, &action, &response, &verifier_results, &context);
-        step += 1;
-
-        // 8. Termination
-        if action.is_stop() && all_verifiers_pass(&verifier_results) {
-            trajectory.finish(RunOutcome::Converged);
-            break;
-        }
-        if step >= field.boundary.max_steps {
-            trajectory.finish(RunOutcome::StepLimitReached);
-            break;
-        }
-        if trajectory.total_cost >= field.boundary.max_cost {
-            trajectory.finish(RunOutcome::CostLimitReached);
-            break;
-        }
-    }
-
-    sandbox.destroy();
-    trajectory
-}
-```
-
+Core implementation is in `portlang-runtime/src/loop_runner.rs`.
 
 ## VII. Structural Checks
 
@@ -256,9 +212,9 @@ Before a field is executed, `portlang check` runs structural checks on the field
 
 **Budget arithmetic.** Estimate re-observation cost (tokens per re-observation × max steps) and warn if it exceeds a significant fraction of the context budget.
 
-**Boundary completeness.** If the boundary includes bash without specifying `sandbox = "container"`, warn. If filesystem restrictions are set but network policy is not, warn.
+**Boundary completeness.** If filesystem restrictions are set but network policy is not, warn.
 
-**Tool count.** If the tool manifest exceeds a configurable threshold, warn. The checker does not know which tools are relevant (that requires understanding the prompt). It only counts.
+**Tool count.** If the tool manifest exceeds a configurable threshold, warn.
 
 ### What cannot be checked statically
 
@@ -280,6 +236,8 @@ The observability layer has two purposes: debugging individual runs (what went w
 ### Trajectory storage
 
 Trajectories store incremental deltas, not full context window snapshots. A 30-step run at 32k tokens per step would produce ~960k tokens of state data if snapshotted fully. Instead, each step records what entered the context window. The full context at step N is reconstructed by replaying from step 0.
+
+Stored in: `~/.portlang/trajectories/<field-name>/<id>.json`
 
 ### Trajectory replay
 
@@ -307,14 +265,16 @@ None of this requires inference. It requires counting, correlating, and presenti
 
 ### Convergence benchmarking
 
-`portlang converge --runs 20` runs a field N times and reports convergence rate, average trajectory length, cost distribution, and divergence clusters.
+`portlang converge <field> -n N` runs a field N times and reports convergence rate, average trajectory length, cost distribution, and divergence clusters.
 
 `portlang eval <directory>` runs all `field.toml` files found recursively in a directory (one run each) and reports aggregate accuracy: pass rate, total/average cost, tokens, and steps across all tasks. This is the cross-task evaluation command; `converge` is the single-field reliability command.
 
-Running a field 100 times is expensive. If each run costs $0.50, benchmarking costs $50 per iteration. The framework is honest about this. Start with 5 runs, check for structural issues, adjust, then benchmark with more. The bench command accepts a count parameter and reports confidence intervals.
+Running a field 100 times is expensive. If each run costs $0.50, benchmarking costs $50 per iteration. The framework is honest about this. Start with 5 runs, check for structural issues, adjust, then benchmark with more.
 
 
 ## IX. Composition & Multi-Agent
+
+**Status: Not implemented**
 
 Composition through fields, not through agent communication.
 
@@ -323,6 +283,8 @@ Composition through fields, not through agent communication.
 A pipeline is a sequence of fields connected by artifacts. Each stage is a self-contained field. The output of one stage is a file (the artifact) that becomes an input to the next stage's environment.
 
 Each field in a pipeline gets a fresh context window. The noise from stage 1's execution does not enter stage 2's context window. Only the artifact does.
+
+Proposed syntax:
 
 ```toml
 # pipeline.toml
@@ -367,315 +329,374 @@ A gate is a verifier that blocks pipeline progression. All verifiers must pass b
 
 **Context management is lossy by nature.** The framework imposes a hard token budget. When exhausted, the run terminates. Developers who want summarization or pruning can build it, but the framework will not pretend that lossless context compression is a configuration option.
 
+---
 
+# PART II: IMPLEMENTATION STATUS
 
-### Implementation phases
-
-**Phase 1: Core loop.** `portlang-core`, `portlang-config`, `portlang-runtime` (dispatch sandbox only), `portlang-trajectory` (filesystem store), `portlang-provider-anthropic`, `portlang-cli` (run and check only). This gets a working `portlang run` for fields with structured tools (read, write, glob) and no bash.
-
-**Phase 2: Observability.** `portlang-trajectory` (replay, diff, query), `portlang-adapt`, `portlang-cli` (replay, diff, bench). This gets trajectory analysis working.
-
-**Phase 3: Container sandbox.** `portlang-sandbox-container`. This unlocks bash in field definitions.
-
-**Phase 4: Composition.** `portlang-pipeline`. Pipelines, parallel execution, gating.
+This part tracks what's implemented, what's in progress, and what needs to be built.
 
 ---
 
-## Implementation Status Checklist
+## Implementation Roadmap
 
-### Phase 1: Core Agent Runtime ✅ COMPLETE
+### Phase 1: Core Runtime ✅ COMPLETE
 
-- [x] Core agent loop with step-by-step execution
-- [x] Structured tools: Read, Write, Glob
-- [x] Boundary enforcement with glob patterns
-- [x] Path escape detection and prevention
-- [x] Container sandbox (AppleContainerSandbox)
-  - [x] Container creation with unique IDs
-  - [x] Volume mounting at /workspace
-  - [x] Network isolation (--network none)
-  - [x] Automatic cleanup via Drop trait
-  - [x] Command execution via container exec
-- [x] Dispatch sandbox (DispatchSandbox) - REMOVED, Container only
-- [x] Sandbox factory with runtime detection
-- [x] Verifier system
-  - [x] Trigger types: Always, OnStop, OnWrite
-  - [x] Shell command execution
-  - [x] Result capture (stdout/stderr/exit_code)
-  - [x] Integration with termination logic
-- [x] Token budget tracking and enforcement
-- [x] Cost budget tracking and enforcement
-- [x] Step limit enforcement
-- [x] Trajectory recording (complete event log)
-- [x] Loop detection with helpful error messages
-- [x] Environment context auto-discovery
-- [x] Context window management
-- [x] Re-observation commands
-- [x] Configuration parsing from TOML
-- [x] CLI command: `run`
-- [x] CLI command: `check`
-- [x] CLI command: `init`
+**Goal:** Working `portlang run` for fields with structured tools (read, write, glob), verifiers, and boundaries.
+
+**Components:**
+- Core agent loop with step-by-step execution
+- Structured tools: Read, Write, Glob
+- Boundary enforcement with glob patterns
+- Path escape detection and prevention
+- Verifier system
+  - Trigger types: Always, OnStop, OnWrite (only OnStop currently used)
+  - Shell command execution
+  - Result capture (stdout/stderr/exit_code)
+  - Integration with termination logic
+- Token budget tracking and enforcement
+- Cost budget tracking and enforcement
+- Step limit enforcement
+- Trajectory recording (complete event log)
+- Loop detection with helpful error messages
+- Environment context auto-discovery
+- Context window management
+- Re-observation commands
+- Configuration parsing from TOML
+- CLI commands: `run`, `check`, `init`
 
 **Provider Integrations:**
-- [x] Anthropic provider (Claude models)
-- [x] OpenRouter provider (multi-model support)
-- [ ] OpenAI provider (Phase 5 - out of scope)
+- Anthropic provider (Claude models via direct API)
+- OpenRouter provider (multi-model support)
 
 **Trajectory Storage:**
-- [x] Filesystem storage backend
-- [x] JSON serialization
-- [x] Unique ID generation
-- [x] Directory organization by field name
+- Filesystem storage backend
+- JSON serialization
+- Unique ID generation (timestamp + short hash)
+- Directory organization by field name
+
+**Status:** All features complete and stable.
 
 ---
 
 ### Phase 2: Observability & Adaptation ✅ COMPLETE
 
-- [x] Trajectory querying and filtering
-  - [x] Filter by field name
-  - [x] Filter by outcome (converged/failed)
-  - [x] Limit results
-- [x] Trajectory replay
-  - [x] Interactive step-by-step
-  - [x] JSON output format
-  - [x] Context reconstruction
-- [x] Trajectory diff
-  - [x] Structural comparison
-  - [x] Divergence point detection
-  - [x] Action type alignment
-  - [x] Text and JSON output formats
-- [x] Adaptation reports
-  - [x] Convergence rate calculation
-  - [x] Tool usage pattern analysis
-  - [x] Token/cost/step distributions
-  - [x] Verifier signal quality analysis
-  - [x] Percentile calculations (p90, p99)
-- [x] Benchmarking
-  - [x] Multi-run execution
-  - [x] Progress tracking
-  - [x] Aggregate statistics
-- [x] CLI command: `list`
-- [x] CLI command: `replay`
-- [x] CLI command: `diff`
-- [x] CLI command: `report`
-- [x] CLI command: `converge` (formerly `benchmark` — runs one field N times, measures convergence reliability)
-- [x] CLI command: `eval` (runs all field.toml files in a directory, reports aggregate accuracy across tasks)
+**Goal:** Trajectory analysis, debugging tools, and adaptation reports.
+
+**Components:**
+- Trajectory querying and filtering
+  - Filter by field name
+  - Filter by outcome (converged/failed)
+  - Limit results
+- Trajectory replay
+  - Interactive step-by-step navigation
+  - JSON output format
+  - Context reconstruction at any step
+- Trajectory diff
+  - Structural comparison of two runs
+  - Divergence point detection
+  - Action type alignment
+  - Text and JSON output formats
+- Adaptation reports
+  - Convergence rate calculation
+  - Tool usage pattern analysis
+  - Token/cost/step distributions (median, p90, p99)
+  - Verifier signal quality analysis
+  - Percentile calculations
+- Benchmarking
+  - Multi-run execution
+  - Progress tracking
+  - Aggregate statistics
+- CLI commands: `list`, `replay`, `diff`, `report`, `converge`, `eval`
+
+**Status:** All features complete. `replay` has known bug (infinite loop at end).
 
 ---
 
 ### Phase 3: Container Sandbox ✅ COMPLETE
 
-- [x] Apple Container integration
-- [x] OCI-compatible image support (python:3.11-alpine)
-- [x] Volume mounting
-- [x] Network isolation
-- [x] Hardware VM isolation per container
-- [x] Sub-second startup performance
-- [x] Automatic cleanup
-- [x] Container availability detection
-- [x] Init command for setup guidance
-- [x] Fallback error handling - REMOVED, fail fast instead
+**Goal:** Hardware-isolated execution via Apple Container.
 
-**Container-Only Mode:**
-- [x] Removed SandboxKind enum
-- [x] Removed dispatch sandbox option
-- [x] Always require container sandbox
-- [x] Fail with clear error if unavailable
+**Components:**
+- Apple Container integration
+- OCI-compatible image support
+- Volume mounting at /workspace
+- Network isolation (--network none)
+- Hardware VM isolation per container
+- Sub-second startup performance (<1s)
+- Automatic cleanup via Drop trait
+- Container availability detection
+- Init command for setup guidance
 
----
+**Platform support:**
+- macOS only (Apple Container is macOS-specific)
+- Linux support deferred (would use different container runtime)
 
-### Phase 4: Composition & Pipelines ❌ NOT IMPLEMENTED
-
-- [ ] Pipeline definition in TOML
-- [ ] Stage sequencing
-- [ ] Artifact passing between stages
-- [ ] Parallel field execution
-- [ ] Gating (block until verifiers pass)
-- [ ] Shared volume support
-
-**Status:** Deferred - not needed for current use cases
+**Status:** Complete and stable. All fields run in containers.
 
 ---
 
+### Phase 4: Tool Extensibility ⚠️ IN PROGRESS
 
-## Feature Completeness Summary
+**Goal:** Allow users to define custom tools without modifying core.
 
-| Category | Status | Notes |
-|----------|--------|-------|
-| **Core Runtime** | ✅ 100% | All features complete |
-| **Sandbox Isolation** | ✅ 100% | Container-only, Apple Containerization |
-| **Boundary Enforcement** | ✅ 100% | Path checking, network isolation |
-| **Verifier System** | ✅ 100% | All trigger types working |
-| **Budget Management** | ✅ 100% | Token, cost, step limits |
-| **Trajectory Recording** | ✅ 100% | Complete event logs |
-| **Storage & Querying** | ✅ 100% | Filesystem backend with filters |
-| **Observability** | ✅ 100% | Replay, diff, reports |
-| **Adaptation** | ✅ 100% | Statistical analysis |
-| **CLI** | ✅ 100% | 9 commands: run, check, init, list, replay, diff, report, converge, eval |
-| **Providers** | ✅ 66% | Anthropic + OpenRouter (OpenAI deferred) |
-| **Tool Extensibility** | ✅ 50% | Shell tools complete, Python/Rust planned |
-| **Pipelines** | ❌ 0% | Not implemented (Phase 4) |
-| **MCP Integration** | ❌ 0% | Not implemented (Phase 3.5) |
-| **Skills System** | ❌ 0% | Not implemented (Phase 3.5) |
+**Custom Tool Types:**
+
+1. **Shell Tools** ✅ COMPLETE
+   - Define via `[[tool]]` with `type = "shell"` and `script` path
+   - Script receives parameters as arguments, outputs JSON to stdout
+   - Executable permission required
+   - Example: word_count, file_copy, http_get
+
+2. **Python Tools** ✅ COMPLETE
+   - Define via `[[tool]]` with `type = "python"` and `script` path
+   - Script must have `execute(input: dict) -> dict` function
+   - PEP 723 inline dependencies support (`# /// script` block)
+   - Automatic venv creation and dependency installation
+   - Example: data_processor, json_validator, text_analyzer
+
+3. **MCP Servers** ✅ 80% COMPLETE
+   - Define via `[[tool]]` with `type = "mcp"`
+   - Supports stdio and HTTP/SSE transports
+   - Environment variable substitution for secrets
+   - Example: filesystem, github, postgres
+   - **Missing:** Full resource and prompt support (only tools currently exposed)
+
+**Documentation:**
+- ✅ CUSTOM_TOOLS.md created
+- ✅ Example scripts in examples/
+- ❌ Need better error messages for tool failures
+- ❌ Need tool debugging workflow documentation
+
+**Status:** Core functionality complete. Need polish and better docs.
 
 ---
 
-## Current Focus Areas
+### Phase 5: Code Mode ⚠️ 80% COMPLETE
 
-1. **Production Deployment**: System is ready for real-world use
-2. **Custom Tool Support**: Users can define shell-based tools without modifying core
-3. **Documentation**: README.md and CUSTOM_TOOLS.md cover setup and usage
-4. **Testing**: Integration tests pass, demo fields work
-5. **Performance**: Container startup <1s, cleanup automatic
+**Goal:** Allow agents to write and execute code that processes data outside the context window.
 
-## Recent Additions
+**What is Code Mode:**
+- Agent writes TypeScript code that calls tools
+- Code executes in sandbox, results summarized in context
+- Bypasses token limit for large data processing
+- Tools defined in Python are exposed as TypeScript functions
 
-### Custom Tool System (Phase 3.5 - March 2026)
-- **Extensible tool architecture**: Replace hardcoded 3-tool enum with registry-based system
-- **Shell command tools**: Define custom tools using shell commands with template substitution
-- **Runtime registration**: Tools registered dynamically from field.toml configuration
-- **Security**: Parameter escaping prevents shell injection
-- **Future-ready**: Foundation for Python/Rust/HTTP tools
+**Implementation:**
+- ✅ Basic code execution engine
+- ✅ Tool exposure to TypeScript runtime
+- ✅ Sandboxed execution
+- ✅ Result capture and summarization
+- ❌ Type generation for tools (currently manual)
+- ❌ Better error handling for code failures
+- ❌ Code caching for repeated operations
 
-
-### MCP (Model Context Protocol) Integration ❌ NOT IMPLEMENTED
-
-**What is MCP:**
-- Anthropic's standard protocol for connecting LLMs to data sources
-- Allows tools, resources, and prompts to be exposed via servers
-- Standard interface: stdio, HTTP, or SSE
-
-**Needed:**
-- [ ] MCP client implementation
-- [ ] MCP server discovery
-- [ ] Tool conversion (MCP tools → portlang tools)
-- [ ] Resource access (MCP resources → context window)
-- [ ] Prompt templates from MCP servers
-
-**Example:**
+**Configuration:**
 ```toml
-[environment]
-mcp_servers = [
-    { name = "filesystem", command = "npx", args = ["-y", "@modelcontextprotocol/server-filesystem", "/path"] },
-    { name = "github", command = "mcp-server-github", env = { GITHUB_TOKEN = "..." } },
-]
+[code_mode]
+enabled = true
+
+[[tool]]
+type = "python"
+script = "./tools/data_tools.py"  # Exposed as TypeScript functions
 ```
 
-**Reference:** https://modelcontextprotocol.io/
+**Status:** Works but rough edges. Needs type generation and better error messages.
 
 ---
 
-### Skills System ❌ NOT IMPLEMENTED
+### Phase 6: AI Ecosystem Integration
 
-**What are Skills:**
-- Reusable, composable capabilities
-- Higher-level than tools (can invoke multiple tools)
-- Parameterized and typed
-- Examples: "code review", "test generation", "refactoring"
+**Goal:** Make portlang easy to learn and integrate with AI coding tools.
 
-**Needed:**
-- [ ] Skill definition format
-- [ ] Skill composition (skills can call other skills)
-- [ ] Skill library/registry
-- [ ] Skill parameter validation
-- [ ] Skill result schemas
-- [ ] Built-in skill library
+**Skills System (External)** ✅ COMPLETE
+- Created portlang skill for Claude Code
+- Install: `npx skills add https://github.com/portofcontext/skills --skill portlang`
+- Covers: field creation, verifiers, debugging, convergence testing
+- Reference docs: verifier patterns, custom tools, trajectory analysis, field recipes
 
-**Example:**
-```toml
-[[skill]]
-name = "test-generator"
-description = "Generate pytest tests for Python functions"
-parameters = { file_path = "string", function_name = "string" }
-implementation = "./skills/test_generator.py"
+**MCP Integration** ✅ 80% COMPLETE
+- MCP servers work as custom tools
+- stdio transport: ✅ Complete
+- HTTP/SSE transport: ✅ Complete
+- Tool exposure: ✅ Complete
+- Resource exposure: ❌ Not implemented
+- Prompt exposure: ❌ Not implemented
+- **Missing:** Full MCP spec support beyond tools
 
-[[skill]]
-name = "code-reviewer"
-description = "Review code changes and suggest improvements"
-parameters = { diff = "string" }
-implementation = "./skills/code_reviewer.py"
-```
+**Status:** Skills complete. MCP partial (tools only, no resources/prompts).
 
 ---
 
-### Structured Output ❌ NOT IMPLEMENTED
+## Future Phases (Not Started)
 
-**What is Structured Output:**
-- Type-safe, validated responses from the agent
-- JSON Schema validation
-- Pydantic-like models for outputs
-- Ensures agents return data in expected formats
+### Phase 7: Pipelines & Composition ❌ NOT STARTED
+
+**Goal:** Sequential and parallel field composition.
 
 **Needed:**
-- [ ] Output schema definition in field.toml
-- [ ] Schema validation on agent responses
-- [ ] Retry logic when schema validation fails
-- [ ] Structured output in trajectory
-- [ ] Type generation from schemas (optional)
+- Pipeline configuration format (`pipeline.toml`)
+- Artifact passing between stages
+- Fresh context windows per stage
+- Parallel field execution
+- Gating (block until all verifiers pass)
+- Shared state management for parallel fields
 
-**Example:**
+**Design questions:**
+- How to handle failures in pipeline stages?
+- Should pipelines be fields themselves (recursive)?
+- How to visualize pipeline execution?
+
+**Estimated scope:** 2-3 weeks of implementation.
+
+---
+
+### Phase 8: Multi-Agent Coordination ❌ NOT STARTED
+
+**Goal:** Multiple agents working on same task with coordination.
+
+**Approaches under consideration:**
+1. **Hierarchical** - Supervisor agent delegates to worker agents
+2. **Peer-to-peer** - Agents negotiate and coordinate directly
+3. **Market-based** - Agents bid on subtasks
+
+**Needed:**
+- Agent communication protocol
+- Shared state management
+- Message passing primitives
+- Consensus mechanisms
+- Conflict resolution
+
+**Design questions:**
+- Is this actually needed? Pipelines might be sufficient.
+- How to avoid coordination overhead dominating task time?
+- How to handle agent disagreements?
+
+**Status:** Design exploration phase. May defer indefinitely.
+
+---
+
+### Phase 9: Structured Output ❌ NOT STARTED
+
+**Goal:** Type-safe, validated responses from agents.
+
+**Proposed syntax:**
 ```toml
 [output_schema]
 type = "object"
 required = ["status", "changes"]
 properties.status = { type = "string", enum = ["success", "failure"] }
 properties.changes = { type = "array", items = { type = "string" } }
-properties.reasoning = { type = "string" }
-
-# Agent must return JSON matching this schema when it stops
 ```
 
-### Multi-Agent Coordination ❌ NOT IMPLEMENTED
+**Needed:**
+- JSON Schema validation
+- Retry logic when schema validation fails
+- Structured output in trajectory
+- Type generation from schemas (optional)
 
-**Current State:**
-- Only single-agent execution
-- Pipelines (Phase 4) will allow sequential composition
-- No parallel agent coordination
-- No inter-agent communication
+**Use case:** Agents that return structured data (API responses, analysis results)
 
-**Needed for Multi-Agent:**
-- [ ] Agent Communication Protocol (ACP?)
-- [ ] Shared state management
-- [ ] Message passing between agents
-- [ ] Coordination patterns:
-  - [ ] Hierarchical (supervisor → workers)
-  - [ ] Peer-to-peer (agents negotiate)
-  - [ ] Market-based (agents bid on tasks)
-- [ ] Consensus mechanisms
-- [ ] Conflict resolution
-
-**Note:** This overlaps with Phase 4 (Pipelines) but goes beyond sequential composition.
-
-**Example:**
-```toml
-# Multi-agent field
-[agents]
-coordinator = { field = "./coordinator.toml", role = "supervisor" }
-implementer1 = { field = "./implementer.toml", role = "worker" }
-implementer2 = { field = "./implementer.toml", role = "worker" }
-reviewer = { field = "./reviewer.toml", role = "validator" }
-
-[coordination]
-pattern = "hierarchical"
-max_rounds = 5
-consensus_required = 0.66  # 66% of agents must agree
-```
+**Status:** Design exploration. Unclear if this belongs in portlang vs user-space.
 
 ---
 
-## Revised Implementation Roadmap
+## Current Focus
 
-### Phases
+**Production readiness:**
+- System is stable for real-world use
+- All core features (Phases 1-3) complete
+- Tool extensibility (Phase 4) functional but needs polish
 
-1. **Phase 1: Core Runtime** - ✅ COMPLETE
-2. **Phase 2: Observability** - ✅ COMPLETE
-3. **Phase 3: Container Sandbox** - ✅ COMPLETE
-4. **Phase 3.5: Extensibility & Integration** - ⚠️ IN PROGRESS
-   - ✅ Tool system extensibility (shell-based custom tools)
-   - ❌ MCP integration
-   - ❌ Skills system
-   - ❌ Structured output validation
-5. **Phase 4: Composition & Multi-Agent** - ❌ NOT STARTED
-   - Pipelines (sequential composition)
-   - Parallel execution
-   - Multi-agent coordination
-   - Gating and consensus
+**Next priorities:**
+1. Fix `replay` infinite loop bug
+2. Better error messages for tool failures
+3. Code Mode type generation
+4. MCP resource/prompt support
+5. Decide: Pipelines (Phase 7) or Multi-Agent (Phase 8)?
+
+**Deferred:**
+- Structured Output (unclear if needed)
+- Multi-Agent (might not be necessary)
+- Linux support (would require different container runtime)
+
+---
+
+## Feature Completeness
+
+| Category | Status | Notes |
+|----------|--------|-------|
+| **Core Runtime** | ✅ 100% | All features complete |
+| **Sandbox Isolation** | ✅ 100% | Container-only, Apple Container (macOS) |
+| **Boundary Enforcement** | ✅ 100% | Path checking, network isolation |
+| **Verifier System** | ✅ 100% | OnStop trigger working, Always/OnWrite not used |
+| **Budget Management** | ✅ 100% | Token, cost, step limits enforced |
+| **Trajectory Recording** | ✅ 100% | Complete event logs, delta-based storage |
+| **Observability** | ✅ 100% | Replay, diff, reports, convergence testing |
+| **CLI** | ✅ 100% | 9 commands working |
+| **Providers** | ✅ 40% | Anthropic + OpenRouter (OpenAI deferred) |
+| **Custom Tools** | ✅ 80% | Shell, Python, MCP (needs polish) |
+| **Code Mode** | ✅ 80% | Works but needs type generation |
+| **MCP Integration** | ✅ 80% | Tools only, no resources/prompts |
+| **Skills** | ✅ 100% | External portlang skill complete |
+| **Pipelines** | ❌ 0% | Not implemented |
+| **Multi-Agent** | ❌ 0% | Not implemented, may not be needed |
+| **Structured Output** | ❌ 0% | Not implemented, unclear if needed |
+
+---
+
+## Known Issues
+
+1. **`portlang replay` infinite loop** - Replay gets stuck at end of trajectory, repeating "Already at the end" forever. Need to fix exit condition.
+
+2. **Tool error messages unclear** - When a custom tool fails, error message doesn't clearly indicate which tool or why. Need better error context.
+
+3. **MCP resource/prompt support missing** - MCP servers can expose resources (data sources) and prompts (templates), but we only expose tools currently.
+
+4. **No tool debugging workflow** - Hard to test custom tools in isolation. Should have `portlang test-tool <script>` command.
+
+5. **Code Mode type generation manual** - Python tools aren't automatically translated to TypeScript types. Developer has to write them manually.
+
+6. **No Windows/Linux support** - Relies on Apple Container (macOS only). Would need different container runtime for cross-platform.
+
+---
+
+## Design Decisions Log
+
+**Why container-only sandbox?**
+- Originally had DispatchSandbox (no isolation) as fallback
+- Removed it: partial isolation is worse than none
+- Forces honest conversation about security boundaries
+- Apple Container is fast enough (<1s startup) that overhead is acceptable
+
+**Why TOML for configuration?**
+- Human-readable, diff-friendly
+- Strict parsing (unknown keys are errors)
+- Same reasoning as Cargo
+
+**Why trajectory deltas instead of snapshots?**
+- 30-step run at 32k tokens/step = 960k tokens if fully snapshotted
+- Deltas are 10-100x smaller
+- Replay reconstructs full context by replaying deltas from step 0
+
+**Why no prompt compression/summarization?**
+- Lossy compression changes the distribution
+- Framework doesn't pretend lossless compression exists
+- Developer sets hard token budget, run terminates when exceeded
+- Honest about trade-offs
+
+**Why verifiers inject into context, not just pass/fail?**
+- Verifier output is the reward signal
+- Agent sees *why* it failed, not just that it failed
+- Steers behavior at runtime, not just terminal verdict
+- Aligns with RL theory (R(s,a) shapes policy)
+
+**Why glob patterns for boundaries?**
+- Familiar syntax (gitignore, .dockerignore)
+- Expressive enough for most use cases
+- Enforced at runtime by sandbox, not suggestions
+
+**Why no multi-agent by default?**
+- Pipelines handle most composition needs
+- Multi-agent coordination overhead often exceeds benefit
+- Unclear what problems it solves that pipelines don't
+- May implement later if clear use case emerges
