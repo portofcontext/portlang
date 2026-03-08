@@ -48,22 +48,15 @@ pub async fn eval_command(directory: PathBuf) -> Result<()> {
         let field = match parse_field_from_file(path) {
             Ok(f) => f,
             Err(e) => {
-                println!(
-                    "  ✗  [{}/{}] {} — parse error: {}",
+                eprintln!(
+                    "\n✗ Fatal error: Failed to parse field [{}/{}] {}",
                     idx + 1,
                     total,
-                    path.display(),
-                    e
+                    path.display()
                 );
-                results.push(TaskResult {
-                    name: path.display().to_string(),
-                    passed: false,
-                    outcome_description: format!("parse error: {}", e),
-                    steps: 0,
-                    tokens: 0,
-                    cost_microdollars: 0,
-                });
-                continue;
+                eprintln!("  Error: {}", e);
+                eprintln!("\nEvaluation aborted. Fix the field configuration and try again.");
+                return Err(e.into());
             }
         };
 

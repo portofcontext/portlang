@@ -30,6 +30,18 @@ pub enum SandboxError {
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
+    /// MCP server failed to start
+    #[error("MCP server failed to start: {0}")]
+    McpServerStartupError(String),
+
+    /// MCP tool execution failed
+    #[error("MCP tool execution failed: {0}")]
+    McpToolError(String),
+
+    /// MCP server unreachable
+    #[error("MCP server unreachable: {0}")]
+    McpServerUnreachable(String),
+
     /// Other error
     #[error("{0}")]
     Other(String),

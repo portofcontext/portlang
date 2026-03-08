@@ -24,6 +24,10 @@ pub struct RawField {
     pub tool: Vec<RawCustomTool>,
     #[serde(default)]
     pub code_mode: Option<RawCodeMode>,
+    #[serde(default)]
+    pub mcp_server: Vec<RawMcpServer>,
+    #[serde(default)]
+    pub container: Option<RawContainerConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -35,6 +39,17 @@ pub struct RawCodeMode {
 
 fn default_true() -> bool {
     true
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawContainerConfig {
+    #[serde(default)]
+    pub packages: Vec<String>,
+    #[serde(default)]
+    pub dockerfile: Option<String>,
+    #[serde(default)]
+    pub image: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -114,4 +129,29 @@ pub struct RawCustomTool {
     pub function: Option<String>,
     #[serde(default)]
     pub input_schema: Option<serde_json::Value>,
+}
+
+/// MCP server configuration from TOML
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawMcpServer {
+    pub name: String,
+
+    // Stdio transport fields
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, String>,
+
+    // HTTP/SSE transport fields
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub headers: Option<std::collections::HashMap<String, String>>,
+
+    // Transport type: "stdio" or "http"/"sse"
+    #[serde(default)]
+    pub transport: Option<String>,
 }

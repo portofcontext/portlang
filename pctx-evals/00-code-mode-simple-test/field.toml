@@ -21,7 +21,7 @@ max_tokens = 2000
 
 [environment]
 type = "local"
-root = "pctx-evals/00-code-mode-simple-test/workspace"
+root = "./workspace"
 
 [boundary]
 allow_write = ["result.txt"]
@@ -39,7 +39,7 @@ enabled = true
 [[verifiers]]
 name = "correct-result"
 command = """
-test "$(cat result.txt)" = "179"
+grep -q "^179$" result.txt
 """
 trigger = "on_stop"
 description = "Result file contains 179 (42 + 137)"

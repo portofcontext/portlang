@@ -1,0 +1,30 @@
+name = "github-mcp-demo"
+description = "Demonstrate GitHub Copilot MCP tools with specific search task"
+goal = """
+Search for Rust implementations of MCP servers on GitHub. Then get the file contents
+of a README from one of the repositories you find. Write a summary of what you learned
+to summary.txt in the workspace.
+"""
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.0
+
+[environment]
+type = "local"
+root = "./workspace"
+
+[[mcp_server]]
+name = "github-copilot"
+transport = "sse"
+url = "https://api.githubcopilot.com/mcp/"
+headers = { Authorization = "Bearer ${GITHUB_MCP_PAT}" }
+
+[context]
+max_steps = 10
+
+[[verifiers]]
+name = "created-summary"
+command = "test -f /workspace/summary.txt"
+trigger = "on_stop"
+description = "Verify that summary.txt was created"

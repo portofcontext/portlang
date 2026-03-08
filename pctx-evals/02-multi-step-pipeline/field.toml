@@ -24,7 +24,7 @@ max_tokens = 8000
 
 [environment]
 type = "local"
-root = "pctx-evals/02-multi-step-pipeline/workspace"
+root = "./workspace"
 
 [boundary]
 allow_write = ["summary.json"]
@@ -40,7 +40,7 @@ enabled = true
 
 [[tool]]
 type = "python"
-script = "pctx-evals/02-multi-step-pipeline/tools/pipeline_tools.py"
+script = "./tools/pipeline_tools.py"
 
 [[verifiers]]
 name = "correct-aggregation"

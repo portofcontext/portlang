@@ -2,6 +2,7 @@ pub mod context_window;
 pub mod environment;
 pub mod loop_detection;
 pub mod loop_runner;
+pub mod mcp;
 pub mod provider;
 pub mod sandbox;
 pub mod tools;

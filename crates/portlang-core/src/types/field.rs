@@ -1,8 +1,13 @@
 use super::{
-    boundary::Boundary, context::ContextPolicy, environment::Environment, model::ModelSpec,
+    boundary::Boundary,
+    context::ContextPolicy,
+    environment::{ContainerConfig, Environment},
+    model::ModelSpec,
     verifier::Verifier,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// Custom tool configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -64,6 +69,19 @@ pub struct Field {
     /// Enable Code Mode execution (requires code-mode feature)
     #[serde(default)]
     pub code_mode: Option<CodeModeConfig>,
+
+    /// MCP servers to connect to
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServer>,
+
+    /// Container configuration for sandbox customization
+    #[serde(default)]
+    pub container: ContainerConfig,
+
+    /// Directory containing the field.toml file (for path resolution)
+    /// None if field was loaded from stdin or string
+    #[serde(skip)]
+    pub config_dir: Option<PathBuf>,
 }
 
 /// Code Mode configuration
@@ -76,6 +94,29 @@ pub struct CodeModeConfig {
 
 fn default_true() -> bool {
     true
+}
+
+/// MCP server transport type
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum McpTransport {
+    /// Stdio transport (local process)
+    Stdio {
+        command: String,
+        args: Vec<String>,
+        env: HashMap<String, String>,
+    },
+    /// SSE/HTTP transport (remote server)
+    Sse {
+        url: String,
+        headers: HashMap<String, String>,
+    },
+}
+
+/// MCP server configuration
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct McpServer {
+    pub name: String,
+    pub transport: McpTransport,
 }
 
 impl Field {
@@ -93,6 +134,9 @@ impl Field {
             goal,
             custom_tools: Vec::new(),
             code_mode: None,
+            mcp_servers: Vec::new(),
+            container: ContainerConfig::default(),
+            config_dir: None,
         }
     }
 

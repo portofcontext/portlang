@@ -108,4 +108,8 @@ impl Sandbox for DispatchSandbox {
     fn root(&self) -> &Path {
         &self.root
     }
+
+    fn container_id(&self) -> Option<&str> {
+        None // DispatchSandbox doesn't use containers
+    }
 }

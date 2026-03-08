@@ -17,10 +17,108 @@ pub struct AppleContainerSandbox {
 }
 
 impl AppleContainerSandbox {
+    /// Determine which container image to use based on configuration
+    async fn determine_image(
+        config: &portlang_core::ContainerConfig,
+        container_name: &str,
+    ) -> Result<String> {
+        // Priority: custom image > dockerfile > packages > default
+
+        if let Some(ref image) = config.image {
+            // Use pre-built image
+            tracing::info!("Using custom image: {}", image);
+            return Ok(image.clone());
+        }
+
+        if let Some(ref dockerfile_path) = config.dockerfile {
+            // Build from custom Dockerfile
+            tracing::info!("Building image from Dockerfile: {}", dockerfile_path);
+            return Self::build_from_dockerfile(dockerfile_path, container_name).await;
+        }
+
+        if !config.packages.is_empty() {
+            // Build image with additional packages
+            tracing::info!("Building image with packages: {:?}", config.packages);
+            return Self::build_with_packages(&config.packages, container_name).await;
+        }
+
+        // Default: Build image with Python and Node.js (for MCP servers and Python tools)
+        tracing::info!("Building default image with Python 3 and Node.js LTS");
+        let default_packages = vec!["nodejs".to_string(), "npm".to_string()];
+        Self::build_with_packages(&default_packages, container_name).await
+    }
+
+    /// Build container image from custom Dockerfile
+    async fn build_from_dockerfile(dockerfile_path: &str, tag: &str) -> Result<String> {
+        let output = Command::new("container")
+            .args(["build", "-f", dockerfile_path, "-t", tag, "."])
+            .output()
+            .map_err(|e| {
+                SandboxError::InitError(format!("Failed to build from Dockerfile: {}", e))
+            })?;
+
+        if !output.status.success() {
+            return Err(SandboxError::InitError(format!(
+                "Dockerfile build failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+
+        Ok(tag.to_string())
+    }
+
+    /// Build container image with additional packages
+    async fn build_with_packages(packages: &[String], tag: &str) -> Result<String> {
+        // Check if Node.js is being installed to also pre-install MCP packages
+        let has_nodejs = packages
+            .iter()
+            .any(|p| p.contains("nodejs") || p.contains("node"));
+
+        // Create a temporary Dockerfile
+        let mut dockerfile_content = format!(
+            r#"FROM python:3-slim
+RUN apt-get update && apt-get install -y {} && rm -rf /var/lib/apt/lists/*
+"#,
+            packages.join(" ")
+        );
+
+        // Write to temp file
+        let temp_dockerfile = std::env::temp_dir().join(format!("Dockerfile.{}", tag));
+        std::fs::write(&temp_dockerfile, dockerfile_content).map_err(|e| {
+            SandboxError::InitError(format!("Failed to write temp Dockerfile: {}", e))
+        })?;
+
+        // Build image
+        let output = Command::new("container")
+            .args([
+                "build",
+                "-f",
+                temp_dockerfile.to_str().unwrap(),
+                "-t",
+                tag,
+                std::env::temp_dir().to_str().unwrap(),
+            ])
+            .output()
+            .map_err(|e| SandboxError::InitError(format!("Failed to build image: {}", e)))?;
+
+        // Clean up temp file
+        let _ = std::fs::remove_file(&temp_dockerfile);
+
+        if !output.status.success() {
+            return Err(SandboxError::InitError(format!(
+                "Image build failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+
+        Ok(tag.to_string())
+    }
+
     pub async fn new(
         host_root: PathBuf,
         boundary: Boundary,
         registry: Arc<ToolRegistry>,
+        container_config: &portlang_core::ContainerConfig,
     ) -> Result<Self> {
         // Create workspace on host
         if !host_root.exists() {
@@ -31,23 +129,34 @@ impl AppleContainerSandbox {
         // Generate unique container name
         let container_name = format!("portlang-{}", Uuid::new_v4());
 
+        // Determine which image to use
+        let image = Self::determine_image(container_config, &container_name).await?;
+
         // Apple's container CLI (similar to docker but native)
-        let output = Command::new("container")
-            .args([
-                "run",
-                "-d",
-                "--name",
-                &container_name,
-                "--workdir",
-                "/workspace",
-                "--volume",
-                &format!("{}:/workspace", host_root.display()),
-                "--network",
-                "none",
-                "python:3.11-alpine", // OCI-compatible image
-                "sleep",
-                "infinity",
-            ])
+        // Network configuration: Allow network access by default for package downloads
+        // Only disable network if explicitly set to Deny in boundary
+        let mut cmd = Command::new("container");
+        cmd.args([
+            "run",
+            "-d",
+            "--name",
+            &container_name,
+            "--workdir",
+            "/workspace",
+            "--volume",
+            &format!("{}:/workspace", host_root.display()),
+        ]);
+
+        // Add network flag only if denying (use default network otherwise)
+        // FOR NOW WE JUST ALLOW ALL NETWORK TRAFFIC IN THE CONTAINER
+        // IF USERS REQUEST IT, CREATE A NEW NETWORK POLICY VARIABLE IN THE CONTAINER SECTION
+        // if matches!(boundary.network, portlang_core::NetworkPolicy::Deny) {
+        //     cmd.args(["--network", "none"]);
+        // }
+
+        cmd.args([&image, "sleep", "infinity"]);
+
+        let output = cmd
             .output()
             .map_err(|e| SandboxError::InitError(format!("Container start failed: {}", e)))?;
 
@@ -76,6 +185,11 @@ impl AppleContainerSandbox {
     /// Get the tool registry
     pub fn registry(&self) -> &ToolRegistry {
         &self.registry
+    }
+
+    /// Get the container ID
+    pub fn container_id(&self) -> &str {
+        &self.container_id
     }
 
     fn is_write_allowed(&self, path: &str) -> bool {
@@ -191,10 +305,14 @@ impl Sandbox for AppleContainerSandbox {
 
                         Ok(serde_json::to_string_pretty(&files)?)
                     }
-                    _ => Err(SandboxError::ToolError(format!(
-                        "Tool '{}' not supported in container sandbox",
-                        tool
-                    ))),
+
+                    // For all other tools, delegate to the registry
+                    // This includes: custom tools, code_mode, MCP tools, etc.
+                    _ => {
+                        self.registry
+                            .execute(tool.as_str(), &self.host_workspace, input.clone())
+                            .await
+                    }
                 }
             }
             Action::TextOutput { text } => Ok(format!("Agent output: {}", text)),
@@ -227,6 +345,10 @@ impl Sandbox for AppleContainerSandbox {
 
     fn root(&self) -> &Path {
         Path::new("/workspace") // Container always sees /workspace
+    }
+
+    fn container_id(&self) -> Option<&str> {
+        Some(&self.container_id)
     }
 }
 

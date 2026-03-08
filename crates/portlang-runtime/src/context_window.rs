@@ -87,7 +87,6 @@ impl ContextWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use portlang_core::ToolName;
     use serde_json::json;
 
     #[test]

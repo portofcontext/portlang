@@ -23,7 +23,7 @@ max_tokens = 8000
 
 [environment]
 type = "local"
-root = "pctx-evals/01-data-filtering/workspace"
+root = "./workspace"
 
 [boundary]
 allow_write = ["output.json"]
@@ -41,7 +41,7 @@ enabled = true
 # Python tools exposed as TypeScript functions in Code Mode
 [[tool]]
 type = "python"
-script = "pctx-evals/01-data-filtering/tools/data_tools.py"
+script = "./tools/data_tools.py"
 
 [[verifiers]]
 name = "correct-filter"

@@ -16,13 +16,14 @@ glob = { workspace = true }
 tree-sitter = "0.26"
 tree-sitter-python = "0.25"
 anyhow = { workspace = true }
+shellexpand = "3.1"
 
 # Runtime typeshed download and caching
-reqwest = { version = "0.12", features = ["blocking"] }
+reqwest = { version = "0.13.2", features = ["blocking"] }
 flate2 = "1.0"
 tar = "0.4"
-dirs = "5.0"
-zip = "2.1"
+dirs = "6.0"
+zip = "8.2.0"
 walkdir = "2.5"
 path-slash = "0.2"
 
@@ -31,9 +32,16 @@ ty_python_semantic = { git = "https://github.com/portofcontext/portlang-ruff.git
 ty_module_resolver = { git = "https://github.com/portofcontext/portlang-ruff.git", rev = "56b66db9b50b650ab60da4530c72b6658ceb516b" }
 ruff_python_ast = { git = "https://github.com/portofcontext/portlang-ruff.git", rev = "56b66db9b50b650ab60da4530c72b6658ceb516b" }
 ruff_python_parser = { git = "https://github.com/portofcontext/portlang-ruff.git", rev = "56b66db9b50b650ab60da4530c72b6658ceb516b" }
-ruff_db = { git = "https://github.com/portofcontext/portlang-ruff.git", rev = "56b66db9b50b650ab60da4530c72b6658ceb516b", features = ["serde"] }
+ruff_db = { git = "https://github.com/portofcontext/portlang-ruff.git", rev = "56b66db9b50b650ab60da4530c72b6658ceb516b", features = [
+    "serde",
+] }
 ruff_text_size = { git = "https://github.com/portofcontext/portlang-ruff.git", rev = "56b66db9b50b650ab60da4530c72b6658ceb516b" }
-salsa = { git = "https://github.com/salsa-rs/salsa.git", rev = "53421c2fff87426fa0bb51cab06632b87646de13", default-features = false, features = ["compact_str", "macros", "salsa_unstable", "inventory"] }
+salsa = { git = "https://github.com/salsa-rs/salsa.git", rev = "53421c2fff87426fa0bb51cab06632b87646de13", default-features = false, features = [
+    "compact_str",
+    "macros",
+    "salsa_unstable",
+    "inventory",
+] }
 
 [dev-dependencies]
 tempfile = "3.10"

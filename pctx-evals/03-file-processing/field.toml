@@ -23,7 +23,7 @@ max_tokens = 8000
 
 [environment]
 type = "local"
-root = "pctx-evals/03-file-processing/workspace"
+root = "./workspace"
 
 [boundary]
 allow_write = ["stats.json"]
@@ -39,7 +39,7 @@ enabled = true
 
 [[tool]]
 type = "python"
-script = "pctx-evals/03-file-processing/tools/log_tools.py"
+script = "./tools/log_tools.py"
 
 [[verifiers]]
 name = "correct-counts"

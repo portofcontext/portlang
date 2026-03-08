@@ -25,4 +25,7 @@ pub trait Sandbox: Send + Sync {
 
     /// Get the sandbox root directory
     fn root(&self) -> &std::path::Path;
+
+    /// Get the container ID (for running external processes inside the container)
+    fn container_id(&self) -> Option<&str>;
 }

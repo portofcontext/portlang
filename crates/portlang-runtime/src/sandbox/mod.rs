@@ -9,7 +9,7 @@ pub use error::*;
 pub use traits::*;
 
 use crate::tools::ToolRegistry;
-use portlang_core::{Boundary, Environment};
+use portlang_core::{Boundary, ContainerConfig, Environment};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
@@ -23,6 +23,7 @@ pub async fn create_sandbox(
     environment: &Environment,
     boundary: &Boundary,
     registry: Arc<ToolRegistry>,
+    container_config: &ContainerConfig,
 ) -> Result<Box<dyn Sandbox>> {
     let root = match environment {
         Environment::Local { root } => PathBuf::from(root),
@@ -37,6 +38,6 @@ pub async fn create_sandbox(
     }
 
     Ok(Box::new(
-        AppleContainerSandbox::new(root, boundary.clone(), registry).await?,
+        AppleContainerSandbox::new(root, boundary.clone(), registry, container_config).await?,
     ))
 }
