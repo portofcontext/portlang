@@ -2,21 +2,18 @@ Customers with Disputes in Stripe Account
 ==========================================
 
 1. Customer ID: cus_U7JMk0O5Z1x4jK
-   Name:   N/A (not stored)
-   Email:  N/A (not stored)
+   Name:  N/A (not set)
+   Email: N/A (not set)
    Description: Head of Payments — OasisPay, Dubai fintech
    Number of Disputes: 2
-   (Both disputes on charge ch_3T94jpICegwS4jvE0XULcFvS, reason: fraudulent, status: needs_response)
 
 2. Customer ID: cus_U7JMvbBsRj6ci1
-   Name:   N/A (not stored)
-   Email:  N/A (not stored)
+   Name:  N/A (not set)
+   Email: N/A (not set)
    Description: Founder — NebulaEdge Technologies, Bangalore
    Number of Disputes: 1
-   (Dispute on charge ch_3T94jkICegwS4jvE0wuKweel, reason: fraudulent, status: needs_response)
 
-------------------------------------------
-Total disputes found: 3
-Total customers with disputes: 2
-Note: Neither customer has a name or email address stored in the Stripe account.
+Notes:
+- Total disputes found: 3 (all with status "needs_response", reason "fraudulent")
+- Neither customer has a name or email address stored in Stripe.
 

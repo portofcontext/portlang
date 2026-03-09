@@ -45,6 +45,10 @@ pub struct VerifierResult {
     /// Whether the verifier passed (exit code 0)
     pub passed: bool,
 
+    /// The command that was executed
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+
     /// Standard output from the verifier
     pub stdout: String,
 
@@ -60,6 +64,25 @@ impl VerifierResult {
         Self {
             name,
             passed,
+            command: None,
+            stdout,
+            stderr,
+            exit_code,
+        }
+    }
+
+    pub fn with_command(
+        name: String,
+        passed: bool,
+        command: String,
+        stdout: String,
+        stderr: String,
+        exit_code: i32,
+    ) -> Self {
+        Self {
+            name,
+            passed,
+            command: Some(command),
             stdout,
             stderr,
             exit_code,

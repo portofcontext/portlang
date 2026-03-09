@@ -449,7 +449,8 @@ This part tracks what's implemented, what's in progress, and what needs to be bu
 
 2. **Python Tools** ✅ COMPLETE
    - Define via `[[tool]]` with `type = "python"` and `script` path
-   - Script must have `execute(input: dict) -> dict` function
+   - Function parameters with type hints are automatically converted to JSON Schema
+   - Docstrings provide descriptions for the tool and parameters
    - PEP 723 inline dependencies support (`# /// script` block)
    - Automatic venv creation and dependency installation
    - Example: data_processor, json_validator, text_analyzer
@@ -575,28 +576,42 @@ script = "./tools/data_tools.py"  # Exposed as TypeScript functions
 
 ---
 
-### Phase 9: Structured Output ❌ NOT STARTED
+### Phase 9: Structured Output ✅ COMPLETE
 
 **Goal:** Type-safe, validated responses from agents.
 
-**Proposed syntax:**
+**Implementation:**
+- ✅ JSON Schema validation using `jsonschema` crate
+- ✅ Automatic `submit_output` tool when `[output_schema]` is defined
+- ✅ Real-time validation with error feedback to agent
+- ✅ Output written to `/workspace/output.json` for verifiers
+- ✅ Schema and output stored in trajectory
+- ✅ HTML viewer shows both schema and agent output
+- ✅ jq included in default container for easy JSON verification
+- ✅ Works without special goal text (automatic system prompt injection)
+
+**Syntax:**
 ```toml
-[output_schema]
-type = "object"
-required = ["status", "changes"]
-properties.status = { type = "string", enum = ["success", "failure"] }
-properties.changes = { type = "array", items = { type = "string" } }
+output_schema = '''
+{
+  "type": "object",
+  "required": ["status", "changes"],
+  "properties": {
+    "status": {"type": "string", "enum": ["success", "failure"]},
+    "changes": {"type": "array", "items": {"type": "string"}}
+  }
+}
+'''
 ```
 
-**Needed:**
-- JSON Schema validation
-- Retry logic when schema validation fails
-- Structured output in trajectory
-- Type generation from schemas (optional)
+**Verifiers become simple:**
+```toml
+[[verifiers]]
+name = "status-success"
+command = "jq -e '.status == \"success\"' /workspace/output.json"
+```
 
-**Use case:** Agents that return structured data (API responses, analysis results)
-
-**Status:** Design exploration. Unclear if this belongs in portlang vs user-space.
+**Status:** Complete. Makes verifiers much simpler to write.
 
 ---
 
@@ -614,8 +629,10 @@ properties.changes = { type = "array", items = { type = "string" } }
 4. MCP resource/prompt support
 5. Decide: Pipelines (Phase 7) or Multi-Agent (Phase 8)?
 
+**Recently completed:**
+- ✅ Structured Output (Phase 9) - makes verifiers much simpler
+
 **Deferred:**
-- Structured Output (unclear if needed)
 - Multi-Agent (might not be necessary)
 - Linux support (would require different container runtime)
 
@@ -638,9 +655,9 @@ properties.changes = { type = "array", items = { type = "string" } }
 | **Code Mode** | ✅ 80% | Works but needs type generation |
 | **MCP Integration** | ✅ 80% | Tools only, no resources/prompts |
 | **Skills** | ✅ 100% | External portlang skill complete |
+| **Structured Output** | ✅ 100% | Complete with schema validation, submit_output tool |
 | **Pipelines** | ❌ 0% | Not implemented |
 | **Multi-Agent** | ❌ 0% | Not implemented, may not be needed |
-| **Structured Output** | ❌ 0% | Not implemented, unclear if needed |
 
 ---
 

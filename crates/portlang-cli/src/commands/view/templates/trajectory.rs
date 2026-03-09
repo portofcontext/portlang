@@ -27,10 +27,13 @@ pub fn generate_trajectory_html_with_back_link(
     };
 
     let header = render_trajectory_header(trajectory);
+    let context_section = render_context_section(trajectory);
     let timeline = render_timeline(trajectory);
     let navigation = render_navigation();
     let steps_container = render_steps_container(&trajectory.steps);
     let script = render_trajectory_script(trajectory);
+
+    let modals = render_modals(trajectory);
 
     format!(
         r#"<!DOCTYPE html>
@@ -43,13 +46,23 @@ pub fn generate_trajectory_html_with_back_link(
     {}
     {}
     {}
+    {}
 </div>
+{}
 <script>
 {}
 </script>
 </body>
 </html>"#,
-        head, back_nav, header, timeline, navigation, steps_container, script
+        head,
+        back_nav,
+        header,
+        context_section,
+        timeline,
+        navigation,
+        steps_container,
+        modals,
+        script
     )
 }
 
@@ -77,6 +90,52 @@ fn render_trajectory_header(trajectory: &Trajectory) -> String {
     } else {
         "N/A".to_string()
     };
+
+    // Build agent context as modal badges
+    let mut context_badges = Vec::new();
+
+    if !trajectory.goal.is_empty() {
+        context_badges
+            .push(r#"<span class="context-badge" onclick="openModal('goal')">Goal</span>"#);
+    }
+    if !trajectory.system_prompt.is_empty() {
+        context_badges.push(
+            r#"<span class="context-badge" onclick="openModal('system')">System Prompt</span>"#,
+        );
+    }
+    if !trajectory.tool_definitions.is_empty() {
+        context_badges.push(
+            r#"<span class="context-badge" onclick="openModal('tools')">Tool Definitions</span>"#,
+        );
+    }
+
+    // Add structured output badges if present
+    if trajectory.structured_output.is_some() {
+        context_badges.push(
+            r#"<span class="context-badge" onclick="openModal('output')">Structured Output</span>"#,
+        );
+    }
+
+    let badges_html = if !context_badges.is_empty() {
+        format!(
+            r#"<div class="context-badges">{}</div>"#,
+            context_badges.join("")
+        )
+    } else {
+        String::new()
+    };
+
+    let agent_context_html = format!(
+        r#"<div class="info-item" style="grid-column: 1 / -1;">
+    <span class="info-label">Model</span>
+    <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <span class="info-value mono">{}</span>
+        {}
+    </div>
+</div>"#,
+        escape_html(&trajectory.model_name),
+        badges_html
+    );
 
     format!(
         r#"<h1>Trajectory: {}</h1>
@@ -106,6 +165,7 @@ fn render_trajectory_header(trajectory: &Trajectory) -> String {
             <span class="info-label">Duration</span>
             <span class="info-value">{}</span>
         </div>
+        {}
     </div>
 </div>"#,
         escape_html(&trajectory.field_name),
@@ -116,8 +176,103 @@ fn render_trajectory_header(trajectory: &Trajectory) -> String {
         trajectory.step_count(),
         trajectory.total_cost.to_dollars(),
         trajectory.total_tokens,
-        duration
+        duration,
+        agent_context_html
     )
+}
+
+fn render_modals(trajectory: &Trajectory) -> String {
+    let mut modals = Vec::new();
+
+    if !trajectory.goal.is_empty() {
+        modals.push(format!(
+            r#"<div id="modal-goal" class="modal" onclick="closeModalOnBackdrop(event, 'goal')">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Goal</h3>
+            <span class="modal-close" onclick="closeModal('goal')">&times;</span>
+        </div>
+        <div class="modal-body">
+            <pre class="json-content">{}</pre>
+        </div>
+    </div>
+</div>"#,
+            escape_html(&trajectory.goal)
+        ));
+    }
+
+    if !trajectory.system_prompt.is_empty() {
+        modals.push(format!(
+            r#"<div id="modal-system" class="modal" onclick="closeModalOnBackdrop(event, 'system')">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>System Prompt</h3>
+            <span class="modal-close" onclick="closeModal('system')">&times;</span>
+        </div>
+        <div class="modal-body">
+            <pre class="json-content">{}</pre>
+        </div>
+    </div>
+</div>"#,
+            escape_html(&trajectory.system_prompt)
+        ));
+    }
+
+    if !trajectory.tool_definitions.is_empty() {
+        modals.push(format!(
+            r#"<div id="modal-tools" class="modal" onclick="closeModalOnBackdrop(event, 'tools')">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Tool Definitions</h3>
+            <span class="modal-close" onclick="closeModal('tools')">&times;</span>
+        </div>
+        <div class="modal-body">
+            <pre class="json-content">{}</pre>
+        </div>
+    </div>
+</div>"#,
+            format_json(&trajectory.tool_definitions)
+        ));
+    }
+
+    if let Some(ref output) = trajectory.structured_output {
+        let schema_html = if let Some(ref schema) = trajectory.output_schema {
+            format!(
+                r#"<div style="margin-bottom: 2rem;">
+    <h4 style="margin-top: 0; color: var(--secondary);">Required Schema</h4>
+    <pre class="json-content">{}</pre>
+</div>"#,
+                serde_json::to_string_pretty(schema).unwrap_or_else(|_| "{}".to_string())
+            )
+        } else {
+            String::new()
+        };
+
+        modals.push(format!(
+            r#"<div id="modal-output" class="modal" onclick="closeModalOnBackdrop(event, 'output')">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Structured Output</h3>
+            <span class="modal-close" onclick="closeModal('output')">&times;</span>
+        </div>
+        <div class="modal-body">
+            {}
+            <h4 style="margin-top: 0; color: var(--tertiary);">Agent Output</h4>
+            <pre class="json-content">{}</pre>
+        </div>
+    </div>
+</div>"#,
+            schema_html,
+            serde_json::to_string_pretty(output).unwrap_or_else(|_| "{}".to_string())
+        ));
+    }
+
+    modals.join("\n")
+}
+
+fn render_context_section(_trajectory: &Trajectory) -> String {
+    // Agent context is now rendered inline with the header
+    String::new()
 }
 
 fn render_navigation() -> String {
@@ -175,16 +330,31 @@ fn render_step(index: usize, step: &portlang_core::TrajectoryStep) -> String {
         String::new()
     };
 
+    // Build token metadata display
+    let token_meta = if let (Some(input), Some(output)) = (step.input_tokens, step.output_tokens) {
+        format!(
+            "{} tokens ({} in · {} out) · ${:.4}",
+            step.tokens_used,
+            input,
+            output,
+            step.cost.to_dollars()
+        )
+    } else {
+        format!(
+            "{} tokens · ${:.4}",
+            step.tokens_used,
+            step.cost.to_dollars()
+        )
+    };
+
     format!(
         r#"<div class="step-content" id="step-{}" style="display: {}">
     <div class="section">
         <div class="step-header">
             <span class="step-title">Step {}: {}</span>
-            <span class="step-meta">{} tokens · ${:.4} {}</span>
+            <span class="step-meta">{}</span>
         </div>
-
         {}
-
         <div class="json-container">
             <div class="json-label">Input</div>
             <pre class="json-content">{}</pre>
@@ -202,20 +372,8 @@ fn render_step(index: usize, step: &portlang_core::TrajectoryStep) -> String {
         display,
         step.step_number,
         escape_html(&action_name),
-        step.tokens_used,
-        step.cost.to_dollars(),
+        token_meta,
         rejected_badge,
-        if !action_input.is_empty() {
-            format!(
-                r#"<div class="json-container">
-            <div class="json-label">Action</div>
-            <pre class="json-content">{}</pre>
-        </div>"#,
-                format_json(&action_input)
-            )
-        } else {
-            String::new()
-        },
         format_json(&action_input),
         format_json(&step.result),
         verifier_html
@@ -229,10 +387,21 @@ fn render_verifiers(verifier_results: &[portlang_core::VerifierResult]) -> Strin
             let status_class = if vr.passed { "passed" } else { "failed" };
             let status_text = if vr.passed { "Passed" } else { "Failed" };
 
-            // Only show output for failed verifiers to reduce noise
-            let details = if !vr.passed {
-                let mut details_html = String::new();
+            let mut details_html = String::new();
 
+            // Always show command if available
+            if let Some(ref command) = vr.command {
+                details_html.push_str(&format!(
+                    r#"<div class="verifier-command">
+    <strong>Command:</strong>
+    <pre class="command-text">{}</pre>
+</div>"#,
+                    escape_html(command)
+                ));
+            }
+
+            // Show output details (especially for failed verifiers)
+            if !vr.passed {
                 if !vr.stderr.is_empty() {
                     details_html.push_str(&format!(
                         r#"<div class="verifier-output"><strong>Error:</strong><br>{}</div>"#,
@@ -253,11 +422,7 @@ fn render_verifiers(verifier_results: &[portlang_core::VerifierResult]) -> Strin
                         vr.exit_code
                     ));
                 }
-
-                details_html
-            } else {
-                String::new()
-            };
+            }
 
             format!(
                 r#"<div class="verifier-item">
@@ -270,7 +435,7 @@ fn render_verifiers(verifier_results: &[portlang_core::VerifierResult]) -> Strin
                 escape_html(&vr.name),
                 status_class,
                 status_text,
-                details
+                details_html
             )
         })
         .collect::<Vec<_>>()
@@ -404,6 +569,48 @@ document.addEventListener('keydown', (e) => {{
         goToStep(0);
     }} else if (e.key === 'End') {{
         goToStep(-1);
+    }}
+}});
+
+// Toggle collapsible sections
+function toggleSection(element) {{
+    element.classList.toggle('collapsed');
+    const content = element.nextElementSibling;
+    if (content && content.classList.contains('collapsible-content')) {{
+        content.classList.toggle('hidden');
+    }}
+}}
+
+// Modal functions
+function openModal(modalId) {{
+    const modal = document.getElementById('modal-' + modalId);
+    if (modal) {{
+        modal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }}
+}}
+
+function closeModal(modalId) {{
+    const modal = document.getElementById('modal-' + modalId);
+    if (modal) {{
+        modal.style.display = 'none';
+        document.body.style.overflow = 'auto';
+    }}
+}}
+
+function closeModalOnBackdrop(event, modalId) {{
+    if (event.target.classList.contains('modal')) {{
+        closeModal(modalId);
+    }}
+}}
+
+// ESC key to close modals
+document.addEventListener('keydown', (e) => {{
+    if (e.key === 'Escape') {{
+        document.querySelectorAll('.modal').forEach(modal => {{
+            modal.style.display = 'none';
+        }});
+        document.body.style.overflow = 'auto';
     }}
 }});
 

@@ -1,7 +1,9 @@
 use crate::client::{ChatRequest, OpenRouterClient};
 use async_trait::async_trait;
 use portlang_core::{Action, Cost, ToolName};
-use portlang_provider_anthropic::{ContentBlock, Message, MessageContent, ModelProvider, Tool};
+use portlang_provider_anthropic::{
+    ContentBlock, Message, MessageContent, ModelProvider, TokenUsage, Tool,
+};
 use portlang_provider_anthropic::{ProviderError, Result};
 
 /// OpenRouter provider implementation
@@ -159,7 +161,7 @@ impl ModelProvider for OpenRouterProvider {
         messages: &[Message],
         tools: &[Tool],
         system: Option<&str>,
-    ) -> Result<(Action, u64)> {
+    ) -> Result<(Action, TokenUsage)> {
         // Convert messages
         let mut openai_messages = Vec::new();
 
@@ -221,10 +223,13 @@ impl ModelProvider for OpenRouterProvider {
             Action::stop()
         };
 
-        // Total tokens
-        let total_tokens = response.usage.total_tokens;
+        // Create token usage breakdown from OpenRouter response
+        let usage = TokenUsage::new(
+            response.usage.prompt_tokens,
+            response.usage.completion_tokens,
+        );
 
-        Ok((action, total_tokens))
+        Ok((action, usage))
     }
 
     fn model_name(&self) -> &str {

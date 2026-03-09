@@ -49,22 +49,72 @@ pub enum SandboxError {
 
 pub type Result<T> = std::result::Result<T, SandboxError>;
 
-/// Specific boundary violation error
+/// Type of boundary violation
+#[derive(Debug, Clone)]
+pub enum ViolationType {
+    WriteNotAllowed,
+    NetworkDenied,
+    PathEscape,
+    Other(String),
+}
+
+/// Specific boundary violation error with structured data
 #[derive(Debug, Clone)]
 pub struct BoundaryViolation {
+    pub violation_type: ViolationType,
+    pub attempted_value: Option<String>,
+    pub allowed_patterns: Vec<String>,
+    pub context_trace: Option<String>,
     pub description: String,
 }
 
 impl BoundaryViolation {
+    /// Create a simple violation with just a description
     pub fn new(description: impl Into<String>) -> Self {
         Self {
+            violation_type: ViolationType::Other("unknown".to_string()),
+            attempted_value: None,
+            allowed_patterns: Vec::new(),
+            context_trace: None,
             description: description.into(),
         }
+    }
+
+    /// Create a write violation with context trace
+    pub fn write_not_allowed(
+        path: String,
+        allowed_patterns: Vec<String>,
+        context_trace: Option<String>,
+    ) -> Self {
+        let description = format!(
+            "Write to '{}' not allowed. Allowed patterns: {:?}",
+            path, allowed_patterns
+        );
+
+        Self {
+            violation_type: ViolationType::WriteNotAllowed,
+            attempted_value: Some(path),
+            allowed_patterns,
+            context_trace,
+            description,
+        }
+    }
+
+    /// Get the full message including context trace
+    pub fn full_message(&self) -> String {
+        let mut msg = format!("REJECTED: {}", self.description);
+
+        if let Some(ref trace) = self.context_trace {
+            msg.push_str("\n");
+            msg.push_str(trace);
+        }
+
+        msg
     }
 }
 
 impl std::fmt::Display for BoundaryViolation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.description)
+        write!(f, "{}", self.full_message())
     }
 }

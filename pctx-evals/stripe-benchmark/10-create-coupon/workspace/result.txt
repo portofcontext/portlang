@@ -1,37 +1,31 @@
-## Stripe Coupon Task Report
+# Stripe Coupon Task Report
 
-### Before Count
-Total coupons before creation: **27**
+## Before Count
+Total coupons before creation: **28**
 
----
-
-### New Coupon Created — Full JSON Data
+## New Coupon Created — Full JSON Data
 ```json
 {
-  "id": "Kp517VfQ",
+  "id": "WgeDvptI",
   "name": "EVAL25",
   "percent_off": 25.5,
   "amount_off": null,
   "currency": null,
-  "duration": "once",
-  "applies_to": "all products"
+  "duration": "once"
 }
 ```
 
----
+## After Count
+Total coupons after creation: **29**
 
-### After Count
-Total coupons after creation: **28**
+## Confirmation
+The coupon count increased by exactly 1 (28 → 29), confirming the "EVAL25" coupon (id: WgeDvptI) was successfully created.
 
----
-
-### Confirmation
-The coupon count increased by exactly **1** (from 27 → 28), confirming the "EVAL25" coupon was successfully created.
-
-**Coupon Details:**
-- Name: EVAL25
-- Discount: 25.5% off
-- Duration: once (one time use)
-- Applies to: all products (no product restrictions)
-- Stripe ID: Kp517VfQ
+### Coupon Details:
+- **Name:** EVAL25
+- **Discount:** 25.5% off
+- **Duration:** once (one time use)
+- **Applies to:** All products (no product restrictions)
+- **Amount Off:** N/A (percentage-based)
+- **Currency:** N/A (percentage-based)
 

@@ -1,12 +1,11 @@
 Payment Link for Team Training Workshop ($1500 USD)
-=====================================================
 
-Product: Team Training Workshop
-Price: $1,500.00 USD (one-time)
-Payment Link ID: plink_1T967zICegwS4jvEahOsMdty
-Payment Link URL: https://buy.stripe.com/test_dRmfZiaGA4803Zj01N3AY02
+Product: Team Training Workshop (prod_U7JMBvzAPMFxS3)
+Price: $1500.00 USD (price_1T94jOICegwS4jvEtR9XhArH)
+Payment Link ID: plink_1T99iCICegwS4jvEEi19sahl
+Payment Link URL: https://buy.stripe.com/test_00w3cwg0UbAsanH6qb3AY03
 
 Notes:
-- The payment link is reusable (can be used multiple times by different customers).
-- Stripe Checkout (used by payment links) automatically collects the customer's email address.
+- The payment link is reusable (can be used multiple times by different customers)
+- Stripe Checkout automatically collects the customer's email address
 

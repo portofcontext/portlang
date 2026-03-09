@@ -30,11 +30,12 @@ name = "word_count"
 description = "Count words, lines, and characters in a file"
 type = "shell"
 command = "wc {path}"
-
-[tool.input_schema]
-type = "object"
-required = ["path"]
-
-[tool.input_schema.properties.path]
-type = "string"
-description = "Path to the file to analyze"
+input_schema = '''
+{
+  "type": "object",
+  "required": ["path"],
+  "properties": {
+    "path": {"type": "string", "description": "Path to the file to analyze"}
+  }
+}
+'''

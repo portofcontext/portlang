@@ -29,16 +29,18 @@ pub async fn run_verifiers(
 /// Run a single verifier
 async fn run_verifier(sandbox: &dyn Sandbox, verifier: &Verifier) -> VerifierResult {
     match sandbox.run_command(&verifier.command).await {
-        Ok(output) => VerifierResult::new(
+        Ok(output) => VerifierResult::with_command(
             verifier.name.clone(),
             output.success,
+            verifier.command.clone(),
             output.stdout,
             output.stderr,
             output.exit_code,
         ),
-        Err(e) => VerifierResult::new(
+        Err(e) => VerifierResult::with_command(
             verifier.name.clone(),
             false,
+            verifier.command.clone(),
             String::new(),
             format!("Failed to run verifier: {}", e),
             -1,

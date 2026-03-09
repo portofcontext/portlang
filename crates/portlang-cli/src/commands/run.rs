@@ -101,5 +101,9 @@ pub async fn run_command(field_path: PathBuf) -> Result<()> {
         println!("\n✗ Field did not converge");
     }
 
+    // Show command to view the trajectory
+    println!("\nTo view the trajectory:");
+    println!("  portlang view {}", trajectory.id.filename());
+
     Ok(())
 }

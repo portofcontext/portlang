@@ -384,6 +384,7 @@ fn convert_raw_field(raw: RawField, config_dir: Option<PathBuf>) -> Result<Field
         code_mode,
         mcp_servers,
         container,
+        output_schema: raw.output_schema,
         config_dir,
     })
 }

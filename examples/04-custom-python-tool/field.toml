@@ -20,18 +20,11 @@ max_tokens = 20000
 max_cost = "$0.10"
 max_steps = 5
 
-# Custom Python tool. The script must export an `execute(input: dict) -> dict` function.
+# Custom Python tool with auto-extracted schema.
+# The type hints on the execute() function are automatically converted to JSON Schema.
 # PEP 723 inline script dependencies are supported (via uv).
 [[tool]]
-name = "calculator"
-description = "Evaluate a mathematical expression and return the result"
 type = "python"
-script = "../tools/calculator.py"
+script = "./tools/calculator.py"
 function = "execute"
-
-[tool.input_schema]
-type = "object"
-required = ["expression"]
-
-[tool.input_schema.properties]
-expression = { type = "string", description = "The mathematical expression to evaluate (e.g., '42 * 137')" }
+# name, description, and input_schema are auto-extracted from the Python function

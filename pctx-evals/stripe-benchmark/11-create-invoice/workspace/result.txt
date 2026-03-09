@@ -1,30 +1,19 @@
 Invoice Created for Charlotte Souza — SynapseIO
 ================================================
 
-Invoice ID:      in_1T95vbICegwS4jvEQgHqXIVS
-Invoice Number:  CUS0183-0001
+Invoice ID:      in_1T9A0OICegwS4jvEyCPhSXFt
+Invoice Number:  CUS0183-0003
 Customer:        Charlotte Souza (SynapseIO)
-Customer ID:     cus_U7JN7k8qSJHzox
 Status:          Open
-Currency:        USD
 Due:             Net 30
 
-Line Items
-----------
-1. Data Migration Service
-   - Product ID:  prod_U7KaplF5RpQBla
-   - Price ID:    price_1T95vTICegwS4jvE48w3oSWx
-   - Amount:      $1,500.00
-
-2. White Glove Onboarding
-   - Product ID:  prod_U7Ka5Hl72bKxpQ
-   - Price ID:    price_1T95vYICegwS4jvEXqvYvoJu
-   - Amount:      $750.00
-
-------------------------------------------------
-TOTAL:           $2,250.00
-------------------------------------------------
+Line Items:
+-----------
+1. Data Migration Service         $1,500.00
+2. White Glove Onboarding           $750.00
+                                  ---------
+TOTAL:                            $2,250.00
 
 Hosted Invoice URL:
-https://invoice.stripe.com/i/acct_1MuOVeICegwS4jvE/test_YWNjdF8xTXVPVmVJQ2Vnd1M0anZFLF9VN0thRzNEdXN4Q005Ym5CcFc3WUNCTWs0clBsOHRzLDE2MzYxMTY4NA0200s0aRvLV5?s=ap
+https://invoice.stripe.com/i/acct_1MuOVeICegwS4jvE/test_YWNjdF8xTXVPVmVJQ2Vnd1M0anZFLF9VN09vUE51V3lSVm51cThuWnVpNkxlUWlMUHdLMHdhLDE2MzYyNzM1Mg0200YO1l8vSI?s=ap
 

@@ -3,7 +3,7 @@ use crate::environment::EnvironmentContext;
 use crate::loop_detection::LoopDetector;
 use crate::mcp::{McpServerManager, McpToolHandler};
 use crate::provider::{ContentBlock, ModelProvider, Tool};
-use crate::sandbox::create_sandbox;
+use crate::sandbox::{create_sandbox, BoundaryAnalyzer, ContextTracer};
 #[cfg(feature = "code-mode")]
 use crate::tools::handler::ToolHandler;
 use crate::tools::{
@@ -272,7 +272,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
 
     // Tool definitions from registry
     let tool_definitions = registry.tool_definitions();
-    let tools: Vec<Tool> = tool_definitions
+    let mut tools: Vec<Tool> = tool_definitions
         .into_iter()
         .map(|def| Tool {
             name: def.name,
@@ -280,6 +280,44 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
             input_schema: def.input_schema,
         })
         .collect();
+
+    // Add submit_output tool if structured output is required
+    if field.output_schema.is_some() {
+        tools.push(Tool {
+            name: "submit_output".to_string(),
+            description: Some("Submit your final structured output. Call this when you're ready to finish with your JSON result.".to_string()),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "output": {
+                        "type": "object",
+                        "description": "Your structured output matching the required schema"
+                    }
+                },
+                "required": ["output"]
+            }),
+        });
+    }
+
+    // Capture context for trajectory
+    let system_prompt_text = build_system_prompt(field, &env_context);
+    let tools_json = serde_json::to_string_pretty(&tools).unwrap_or_else(|_| "[]".to_string());
+    let env_type = match &field.environment {
+        Environment::Local { .. } => "local".to_string(),
+    };
+
+    trajectory = trajectory.with_context(
+        field.goal.clone(),
+        provider.model_name().to_string(),
+        system_prompt_text.clone(),
+        tools_json.clone(),
+        env_type,
+    );
+
+    // Store output schema if defined
+    if let Some(ref schema) = field.output_schema {
+        trajectory.set_output_schema(schema.clone());
+    }
 
     let mut step_number = 0;
 
@@ -306,14 +344,14 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
         // Step 2: Invoke policy with current context
         tracing::info!("Calling model API...");
         let system_prompt = build_system_prompt(field, &env_context);
-        let (action, tokens) = provider
-            .complete(context.messages(), &tools, system_prompt.as_deref())
+        let (action, usage) = provider
+            .complete(context.messages(), &tools, Some(system_prompt.as_str()))
             .await?;
         tracing::info!("Model API returned, processing response...");
 
-        // Calculate cost
-        let cost = provider.calculate_cost(tokens, 0); // Note: provider already includes both input and output
-        context.add_tokens_and_cost(tokens, cost);
+        // Calculate cost with proper input/output token breakdown
+        let cost = provider.calculate_cost(&usage);
+        context.add_tokens_and_cost(usage.total_tokens, cost);
 
         // NEW: Record the assistant's response so it can see its own actions
         let tool_use_id = match &action {
@@ -358,8 +396,9 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                 rejection_msg,
                 true,
                 cost,
-                tokens,
-            );
+                usage.total_tokens,
+            )
+            .with_token_breakdown(usage.input_tokens, usage.output_tokens);
             trajectory.add_step(step);
 
             // Don't record this in loop detector since it was rejected
@@ -374,17 +413,157 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
         let rejected = boundary_check.is_err();
 
         let result = if rejected {
-            let violation = boundary_check.unwrap_err();
-            let rejection_msg = format!("REJECTED: {}", violation.description);
+            let mut violation = boundary_check.unwrap_err();
+
+            // Trace where the model might have gotten this information
+            if let Some(ref attempted_value) = violation.attempted_value {
+                let mut tracer =
+                    ContextTracer::new(Some(system_prompt_text.clone()), Some(tools_json.clone()));
+
+                // Add environment context
+                tracer.add_environment_context(
+                    "working_directory".to_string(),
+                    "/workspace".to_string(),
+                );
+
+                // Analyze the violation with full context
+                let analyzer = BoundaryAnalyzer::new(tracer);
+                violation =
+                    analyzer.analyze_write_violation(attempted_value, &violation.allowed_patterns);
+            }
+
+            let rejection_msg = violation.full_message();
 
             // Record the rejection as a tool result if we have a tool ID
             if let Some(id) = tool_use_id.clone() {
                 context.append_tool_result(id, rejection_msg.clone(), true);
             } else {
-                context.append_rejection(&violation.description);
+                context.append_rejection(&rejection_msg);
             }
             rejection_msg
         } else {
+            // Special handling for submit_output tool
+            if let Action::ToolCall { tool, input, .. } = &action {
+                if tool.as_str() == "submit_output" {
+                    // Extract and validate the output
+                    if let Some(ref schema) = field.output_schema {
+                        match input.get("output") {
+                            Some(output_value) => {
+                                // Validate against schema
+                                if let Err(e) = crate::structured_output::validate_against_schema(
+                                    output_value,
+                                    schema,
+                                ) {
+                                    let error_msg = format!("Output validation failed: {}", e);
+                                    tracing::error!("{}", error_msg);
+
+                                    // Return error to agent
+                                    if let Some(id) = tool_use_id.clone() {
+                                        context.append_tool_result(id, error_msg.clone(), true);
+                                    }
+
+                                    let step = TrajectoryStep::new(
+                                        step_number,
+                                        action.clone(),
+                                        error_msg.clone(),
+                                        false,
+                                        cost,
+                                        usage.total_tokens,
+                                    )
+                                    .with_token_breakdown(usage.input_tokens, usage.output_tokens);
+                                    trajectory.add_step(step);
+
+                                    continue; // Let agent try again
+                                }
+
+                                // Write to output.json
+                                let output_json =
+                                    serde_json::to_string_pretty(output_value).unwrap();
+                                let write_cmd = format!(
+                                    "cat > /workspace/output.json << 'EOF'\n{}\nEOF",
+                                    output_json
+                                );
+                                if let Err(e) = sandbox.run_command(&write_cmd).await {
+                                    tracing::warn!("Failed to write output.json: {}", e);
+                                }
+
+                                // Store in trajectory
+                                trajectory.set_structured_output(output_value.clone());
+
+                                // Return success to agent and trigger termination
+                                let success_msg =
+                                    "Output submitted successfully. Validation passed.".to_string();
+                                if let Some(id) = tool_use_id.clone() {
+                                    context.append_tool_result(id, success_msg.clone(), false);
+                                }
+
+                                let step = TrajectoryStep::new(
+                                    step_number,
+                                    action.clone(),
+                                    success_msg.clone(),
+                                    false,
+                                    cost,
+                                    usage.total_tokens,
+                                )
+                                .with_token_breakdown(usage.input_tokens, usage.output_tokens);
+                                trajectory.add_step(step);
+
+                                // Run verifiers
+                                let verifier_results = run_verifiers(
+                                    sandbox.as_ref(),
+                                    &field.verifiers,
+                                    &action,
+                                    true,
+                                )
+                                .await;
+                                let all_passed = verifier_results.iter().all(|r| r.passed);
+
+                                if verifier_results.is_empty() || all_passed {
+                                    trajectory.finish(RunOutcome::Converged {
+                                        message: "Structured output submitted and validated"
+                                            .to_string(),
+                                    });
+                                } else {
+                                    if let Some(failed) =
+                                        verifier_results.iter().find(|r| !r.passed)
+                                    {
+                                        trajectory.finish(RunOutcome::VerifierFailed {
+                                            verifier: failed.name.clone(),
+                                            message: failed.stderr.clone(),
+                                        });
+                                    }
+                                }
+
+                                if !field.mcp_servers.is_empty() {
+                                    let _ = mcp_manager.shutdown_all().await;
+                                }
+                                return Ok(trajectory);
+                            }
+                            None => {
+                                let error_msg =
+                                    "submit_output requires an 'output' parameter".to_string();
+                                if let Some(id) = tool_use_id.clone() {
+                                    context.append_tool_result(id, error_msg.clone(), true);
+                                }
+
+                                let step = TrajectoryStep::new(
+                                    step_number,
+                                    action.clone(),
+                                    error_msg,
+                                    false,
+                                    cost,
+                                    usage.total_tokens,
+                                )
+                                .with_token_breakdown(usage.input_tokens, usage.output_tokens);
+                                trajectory.add_step(step);
+
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+
             // Step 4: Dispatch action to sandbox
             match sandbox.dispatch(&action).await {
                 Ok(result) => {
@@ -434,17 +613,27 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
         context.append_verifier_results(&verifier_results);
 
         // Create trajectory step
-        let step = TrajectoryStep::new(step_number, action.clone(), result, rejected, cost, tokens)
-            .with_verifier_results(verifier_results.clone());
+        let step = TrajectoryStep::new(
+            step_number,
+            action.clone(),
+            result,
+            rejected,
+            cost,
+            usage.total_tokens,
+        )
+        .with_token_breakdown(usage.input_tokens, usage.output_tokens)
+        .with_verifier_results(verifier_results.clone());
 
         trajectory.add_step(step);
 
         // Log step completion
         tracing::info!(
-            "Step {} complete: {:?}, tokens: {}, cost: {}",
+            "Step {} complete: {:?}, input: {}, output: {}, total: {}, cost: {}",
             step_number,
             action,
-            tokens,
+            usage.input_tokens,
+            usage.output_tokens,
+            usage.total_tokens,
             cost
         );
 
@@ -500,16 +689,62 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
 
         // Step 8: Check termination conditions
         if is_stop {
-            // Check if all verifiers passed
+            // Get final message from action
+            let final_message = match &action {
+                Action::TextOutput { text } => text.clone(),
+                _ => "Agent stopped".to_string(),
+            };
+
+            // Handle structured output BEFORE checking verifiers (verifiers need output.json to exist)
+            if let Some(ref schema) = field.output_schema {
+                match crate::structured_output::extract_structured_output_from_trajectory(
+                    &trajectory.steps,
+                ) {
+                    Ok(output) => {
+                        // Validate against schema
+                        if let Err(e) =
+                            crate::structured_output::validate_against_schema(&output, schema)
+                        {
+                            tracing::error!("Output validation failed: {}", e);
+                            trajectory.finish(RunOutcome::Error {
+                                message: format!("Output validation failed: {}", e),
+                            });
+                            if !field.mcp_servers.is_empty() {
+                                let _ = mcp_manager.shutdown_all().await;
+                            }
+                            return Ok(trajectory);
+                        }
+
+                        // Write to output.json for verifiers to access
+                        let output_json = serde_json::to_string_pretty(&output).unwrap();
+                        let write_cmd = format!(
+                            "cat > /workspace/output.json << 'EOF'\n{}\nEOF",
+                            output_json
+                        );
+                        if let Err(e) = sandbox.run_command(&write_cmd).await {
+                            tracing::warn!("Failed to write output.json: {}", e);
+                        }
+
+                        // Store in trajectory
+                        trajectory.set_structured_output(output);
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to extract structured output: {}", e);
+                        trajectory.finish(RunOutcome::Error {
+                            message: format!("Failed to extract structured output: {}", e),
+                        });
+                        if !field.mcp_servers.is_empty() {
+                            let _ = mcp_manager.shutdown_all().await;
+                        }
+                        return Ok(trajectory);
+                    }
+                }
+            }
+
+            // Now check if all verifiers passed
             let all_passed = verifier_results.iter().all(|r| r.passed);
 
             if verifier_results.is_empty() || all_passed {
-                // Get final message from action
-                let final_message = match &action {
-                    Action::TextOutput { text } => text.clone(),
-                    _ => "Agent stopped".to_string(),
-                };
-
                 trajectory.finish(RunOutcome::Converged {
                     message: final_message,
                 });
@@ -563,7 +798,7 @@ fn to_camel_case(s: &str) -> String {
 }
 
 /// Build system prompt with environment context
-fn build_system_prompt(field: &Field, env_context: &EnvironmentContext) -> Option<String> {
+fn build_system_prompt(field: &Field, env_context: &EnvironmentContext) -> String {
     let mut parts = vec![];
 
     // User's custom system prompt
@@ -651,9 +886,21 @@ fn build_system_prompt(field: &Field, env_context: &EnvironmentContext) -> Optio
         }
     }
 
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join("\n"))
+    // Add structured output requirements if schema is defined
+    if let Some(ref schema) = field.output_schema {
+        let mut output_doc = String::from("\n# Structured Output\n\n");
+        output_doc.push_str("This task requires structured output matching this schema:\n\n");
+        output_doc.push_str("```json\n");
+        output_doc
+            .push_str(&serde_json::to_string_pretty(schema).unwrap_or_else(|_| "{}".to_string()));
+        output_doc.push_str("\n```\n\n");
+        output_doc.push_str("When you're ready to submit your results, use the `submit_output` tool with your JSON object.\n");
+        output_doc.push_str(
+            "The system will validate your output and write it to output.json for verification.\n",
+        );
+
+        parts.push(output_doc);
     }
+
+    parts.join("\n")
 }

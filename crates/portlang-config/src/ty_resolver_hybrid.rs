@@ -1,6 +1,6 @@
 /// Hybrid type resolution: AST parsing + ty semantic analysis
 ///
-/// ✅ **PRODUCTION** - Full semantic type resolution with vendored typeshed
+/// **PRODUCTION** - Full semantic type resolution with vendored typeshed
 ///
 /// This combines AST parsing with ty's semantic analysis engine to provide:
 /// - **Cross-file imports**: Resolves types from other modules

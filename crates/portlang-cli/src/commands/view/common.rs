@@ -101,8 +101,8 @@ pre {
 }
 
 .header-info {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 1.5rem;
   margin-bottom: 1rem;
 }
@@ -287,6 +287,34 @@ button:disabled {
   padding: 0.5rem 0;
 }
 
+.verifier-command {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background: #F8F8F8;
+  border-radius: 4px;
+  border-left: 3px solid var(--tertiary);
+}
+
+.verifier-command strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--tertiary);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.command-text {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  background: #FAFAFA;
+  padding: 0.5rem;
+  margin: 0;
+  border-radius: 3px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .timeline {
   margin: 2rem 0 1rem 0;
   padding: 1rem 0;
@@ -440,6 +468,127 @@ a:hover {
   display: none;
 }
 
+.json-content.compact {
+  margin: 0.5rem 0 0 0;
+  padding: 0.75rem;
+  max-height: 300px;
+  background: #F8F8F8;
+  border-radius: 4px;
+}
+
+.info-item .collapsible {
+  padding: 0.25rem 0;
+  font-weight: 500;
+}
+
+.info-item .collapsible .info-label {
+  margin-bottom: 0;
+}
+
+.context-badges {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.context-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  background: var(--box-bg);
+  color: var(--primary);
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.context-badge:hover {
+  background: var(--secondary);
+  color: var(--white);
+  transform: translateY(-1px);
+}
+
+.context-badge:active {
+  transform: translateY(0);
+}
+
+.modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal-content {
+  background: var(--white);
+  border-radius: 8px;
+  max-width: 900px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  animation: modalSlideIn 0.2s ease-out;
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem;
+  border-bottom: 2px solid var(--secondary);
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: var(--header-text);
+  font-size: 1.25rem;
+}
+
+.modal-close {
+  font-size: 2rem;
+  color: var(--secondary);
+  cursor: pointer;
+  line-height: 1;
+  font-weight: 300;
+  transition: color 0.2s;
+}
+
+.modal-close:hover {
+  color: var(--error-red);
+}
+
+.modal-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-body .json-content {
+  margin: 0;
+  max-height: none;
+}
+
 @media (max-width: 768px) {
   body {
     padding: 1rem;
@@ -507,7 +656,7 @@ pub fn write_and_open(html: String, filename: String, auto_open: bool) -> Result
 }
 
 /// Render a basic page layout with header
-pub fn render_page(title: &str, subtitle: &str, content: &str) -> String {
+pub fn _render_page(title: &str, subtitle: &str, content: &str) -> String {
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">

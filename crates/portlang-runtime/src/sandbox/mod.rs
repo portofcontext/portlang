@@ -1,9 +1,13 @@
 pub mod apple_container;
+pub mod boundary_analyzer;
+pub mod context_tracer;
 pub mod dispatch;
 pub mod error;
 pub mod traits;
 
 pub use apple_container::AppleContainerSandbox;
+pub use boundary_analyzer::BoundaryAnalyzer;
+pub use context_tracer::{format_context_trace, ContextTracer};
 pub use dispatch::DispatchSandbox;
 pub use error::*;
 pub use traits::*;

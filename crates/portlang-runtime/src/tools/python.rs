@@ -116,7 +116,8 @@ def main():
 
     # Execute the tool function
     try:
-        result = tool_fn(input_data)
+        # Unpack input_data as keyword arguments to support typed parameters
+        result = tool_fn(**input_data)
 
         # Ensure result is JSON-serializable
         try:

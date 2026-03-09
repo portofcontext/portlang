@@ -5,6 +5,7 @@ pub mod loop_runner;
 pub mod mcp;
 pub mod provider;
 pub mod sandbox;
+pub mod structured_output;
 pub mod tools;
 pub mod verifier_runner;
 
@@ -14,4 +15,5 @@ pub use loop_detection::*;
 pub use loop_runner::*;
 pub use provider::*;
 pub use sandbox::*;
+pub use structured_output::*;
 pub use verifier_runner::*;

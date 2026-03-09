@@ -28,6 +28,33 @@ pub struct RawField {
     pub mcp_server: Vec<RawMcpServer>,
     #[serde(default)]
     pub container: Option<RawContainerConfig>,
+    #[serde(default, deserialize_with = "deserialize_output_schema")]
+    pub output_schema: Option<serde_json::Value>,
+}
+
+fn deserialize_output_schema<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum SchemaOrString {
+        String(String),
+        Value(serde_json::Value),
+    }
+
+    match Option::<SchemaOrString>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(SchemaOrString::String(s)) => {
+            // Parse JSON string
+            serde_json::from_str(&s)
+                .map(Some)
+                .map_err(serde::de::Error::custom)
+        }
+        Some(SchemaOrString::Value(v)) => Ok(Some(v)),
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -127,8 +154,35 @@ pub struct RawCustomTool {
     pub script: Option<String>,
     #[serde(default)]
     pub function: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_schema")]
     pub input_schema: Option<serde_json::Value>,
+}
+
+fn deserialize_optional_schema<'de, D>(
+    deserializer: D,
+) -> Result<Option<serde_json::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum SchemaOrString {
+        String(String),
+        Value(serde_json::Value),
+    }
+
+    match Option::<SchemaOrString>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(SchemaOrString::String(s)) => {
+            // Parse JSON string
+            serde_json::from_str(&s)
+                .map(Some)
+                .map_err(serde::de::Error::custom)
+        }
+        Some(SchemaOrString::Value(v)) => Ok(Some(v)),
+    }
 }
 
 /// MCP server configuration from TOML

@@ -1,5 +1,5 @@
 Stripe Account Balance (Test Mode)
 =====================================
-Available:  $1,251.02 USD
-Pending:      $170.01 USD
+Available: $1,251.02 USD
+Pending:   $170.01 USD
 

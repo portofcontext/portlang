@@ -3,17 +3,16 @@
 # dependencies = []
 # ///
 
-def execute(input):
+def execute(expression: str) -> dict:
     """
     Simple calculator tool that evaluates math expressions.
 
     Args:
-        input: Dict with 'expression' key containing the math expression
+        expression: The mathematical expression to evaluate (e.g., '42 * 137')
 
     Returns:
         Dict with 'result' and 'status'
     """
-    expression = input.get("expression")
 
     if not expression:
         return {

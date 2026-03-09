@@ -1,15 +1,13 @@
 Stripe Account Balance
 ======================
-Mode: Test
+Mode: Test (livemode: false)
 
 Available Balance:
-  - USD: $1,251.02 (Card: $1,251.02)
+  - USD: $1,251.02 (source: card)
 
 Instant Available Balance:
-  - USD: $250.00 (Card: $250.00)
+  - USD: $250.00 (source: card)
 
 Pending Balance:
-  - USD: $170.01 (Card: $170.01)
-
-Retrieved via Stripe MCP Server
+  - USD: $170.01 (source: card)
 

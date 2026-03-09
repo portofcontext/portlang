@@ -42,9 +42,9 @@ impl AppleContainerSandbox {
             return Self::build_with_packages(&config.packages, container_name).await;
         }
 
-        // Default: Build image with Python and Node.js (for MCP servers and Python tools)
-        tracing::info!("Building default image with Python 3 and Node.js LTS");
-        let default_packages = vec!["nodejs".to_string(), "npm".to_string()];
+        // Default: Build image with Python, Node.js, and jq (for MCP servers, Python tools, and JSON validation)
+        tracing::info!("Building default image with Python 3, Node.js LTS, and jq");
+        let default_packages = vec!["nodejs".to_string(), "npm".to_string(), "jq".to_string()];
         Self::build_with_packages(&default_packages, container_name).await
     }
 
@@ -191,9 +191,19 @@ RUN apt-get update && apt-get install -y {} && rm -rf /var/lib/apt/lists/*
         if self.boundary.allow_write.is_empty() {
             return false;
         }
+
+        // Normalize path: strip /workspace/ prefix to match relative patterns
+        // The model sees "Working Directory: /workspace" so it naturally uses absolute paths,
+        // but boundary patterns are typically relative (e.g., "result.txt", not "/workspace/result.txt")
+        let normalized_path = path
+            .strip_prefix("/workspace/")
+            .or_else(|| path.strip_prefix("workspace/"))
+            .unwrap_or(path);
+
         for pattern in &self.boundary.allow_write {
             if let Ok(glob_pattern) = glob::Pattern::new(pattern) {
-                if glob_pattern.matches(path) {
+                // Try matching both the normalized path and original path
+                if glob_pattern.matches(normalized_path) || glob_pattern.matches(path) {
                     return true;
                 }
             }
@@ -324,10 +334,12 @@ impl Sandbox for AppleContainerSandbox {
                     .ok_or_else(|| BoundaryViolation::new("Missing path"))?;
 
                 if !self.is_write_allowed(path) {
-                    return Err(BoundaryViolation::new(format!(
-                        "Write to '{}' not allowed. Allowed patterns: {:?}",
-                        path, self.boundary.allow_write
-                    )));
+                    // Return simple violation - context tracing happens in loop_runner
+                    return Err(BoundaryViolation::write_not_allowed(
+                        path.to_string(),
+                        self.boundary.allow_write.clone(),
+                        None, // Context trace added later by loop_runner
+                    ));
                 }
             }
         }
