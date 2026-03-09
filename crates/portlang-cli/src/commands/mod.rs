@@ -7,3 +7,4 @@ pub mod list;
 pub mod replay;
 pub mod report;
 pub mod run;
+pub mod view;

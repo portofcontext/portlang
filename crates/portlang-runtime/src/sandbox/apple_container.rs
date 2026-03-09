@@ -69,13 +69,8 @@ impl AppleContainerSandbox {
 
     /// Build container image with additional packages
     async fn build_with_packages(packages: &[String], tag: &str) -> Result<String> {
-        // Check if Node.js is being installed to also pre-install MCP packages
-        let has_nodejs = packages
-            .iter()
-            .any(|p| p.contains("nodejs") || p.contains("node"));
-
         // Create a temporary Dockerfile
-        let mut dockerfile_content = format!(
+        let dockerfile_content = format!(
             r#"FROM python:3-slim
 RUN apt-get update && apt-get install -y {} && rm -rf /var/lib/apt/lists/*
 "#,

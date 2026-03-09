@@ -1,0 +1,15 @@
+Stripe Disputes Summary
+=======================
+
+Number of disputes: 3
+
+Disputes and their related payment amounts:
+  1. du_1T94jsICegwS4jvEEjgJi8uf → charge ch_3T94jpICegwS4jvE0XULcFvS → $12.00 USD
+  2. du_1T94jrICegwS4jvECDHo7JSe → charge ch_3T94jpICegwS4jvE0XULcFvS → $12.00 USD
+  3. du_1T94jmICegwS4jvEweA5oZZ3 → charge ch_3T94jkICegwS4jvE0wuKweel → $200.00 USD
+
+Sum of related payment amounts (one per dispute): $12.00 + $12.00 + $200.00 = $224.00 USD
+
+Note: Disputes 1 and 2 are linked to the same charge (ch_3T94jpICegwS4jvE0XULcFvS, $12.00).
+      Sum of unique related payment amounts: $12.00 + $200.00 = $212.00 USD
+

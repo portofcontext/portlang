@@ -1,0 +1,53 @@
+name = "03_get_balance"
+description = "Returns Stripe Account balance information with available and pending amounts which are both 0 in this test account"
+
+goal = """
+You have access to a Stripe MCP server connected to a test account.
+
+Task: What is the current balance on this Stripe account? Be concise but include both available and pending amounts.
+
+Write your answer to a file named "result.txt".
+"""
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.0
+max_tokens = 8000
+
+[environment]
+type = "local"
+root = "./workspace"
+
+[boundary]
+allow_write = ["result.txt", "*.json"]
+network = "allow"
+
+[context]
+max_tokens = 150000
+max_cost = "$2.00"
+max_steps = 30
+
+# [code_mode]
+# enabled = true
+
+[[mcp_server]]
+name = "stripe"
+command = "npx"
+args = ["-y", "@stripe/mcp"]
+env = { STRIPE_SECRET_KEY = "${STRIPE_SECRET_KEY}" }
+
+[[verifiers]]
+name = "result-file-exists"
+command = """
+test -f result.txt
+"""
+trigger = "on_stop"
+description = "result.txt must exist"
+
+[[verifiers]]
+name = "contains-expected-text"
+command = """
+grep -qi "available" result.txt && grep -qi "pending" result.txt
+"""
+trigger = "on_stop"
+description = "Result must contain: available, pending"

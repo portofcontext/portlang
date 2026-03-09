@@ -49,6 +49,10 @@ enum Commands {
     Eval {
         /// Directory containing field.toml files (searched recursively)
         directory: PathBuf,
+
+        /// Generate HTML dashboard instead of CLI output
+        #[arg(long)]
+        html: bool,
     },
     /// List trajectories
     List {
@@ -75,6 +79,10 @@ enum Commands {
         /// Output format (text or json)
         #[arg(long, default_value = "text")]
         format: String,
+
+        /// Generate HTML viewer instead of CLI output
+        #[arg(long)]
+        html: bool,
     },
     /// Compare two trajectories
     Diff {
@@ -87,6 +95,10 @@ enum Commands {
         /// Output format (text or json)
         #[arg(long, default_value = "text")]
         format: String,
+
+        /// Generate HTML comparison view instead of CLI output
+        #[arg(long)]
+        html: bool,
     },
     /// Generate an adaptation report from existing trajectories
     Report {
@@ -104,6 +116,66 @@ enum Commands {
         /// Limit number of trajectories to analyze
         #[arg(long)]
         limit: Option<usize>,
+    },
+    /// View trajectories as interactive HTML
+    View {
+        #[command(subcommand)]
+        subcommand: ViewSubcommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ViewSubcommand {
+    /// View a single trajectory
+    Trajectory {
+        /// Trajectory ID (filename without .json extension)
+        trajectory_id: String,
+
+        /// Don't automatically open in browser
+        #[arg(long)]
+        no_open: bool,
+    },
+    /// View eval results dashboard
+    Eval {
+        /// Directory containing field.toml files
+        directory: PathBuf,
+
+        /// Don't automatically open in browser
+        #[arg(long)]
+        no_open: bool,
+    },
+    /// View comparison of two trajectories
+    Diff {
+        /// First trajectory ID
+        trajectory_a: String,
+
+        /// Second trajectory ID
+        trajectory_b: String,
+
+        /// Don't automatically open in browser
+        #[arg(long)]
+        no_open: bool,
+    },
+    /// View field adaptation report
+    Field {
+        /// Field name to analyze
+        field_name: String,
+
+        /// Show only converged trajectories
+        #[arg(long)]
+        converged: bool,
+
+        /// Show only failed trajectories
+        #[arg(long)]
+        failed: bool,
+
+        /// Limit number of trajectories to analyze
+        #[arg(long)]
+        limit: Option<usize>,
+
+        /// Don't automatically open in browser
+        #[arg(long)]
+        no_open: bool,
     },
 }
 
@@ -134,7 +206,13 @@ async fn main() {
         Commands::Converge { field_path, runs } => {
             commands::converge::converge_command(field_path, runs).await
         }
-        Commands::Eval { directory } => commands::eval::eval_command(directory).await,
+        Commands::Eval { directory, html } => {
+            if html {
+                commands::view::view_eval(directory, true)
+            } else {
+                commands::eval::eval_command(directory).await
+            }
+        }
         Commands::List {
             field_name,
             converged,
@@ -144,18 +222,53 @@ async fn main() {
         Commands::Replay {
             trajectory_id,
             format,
-        } => commands::replay::replay_command(trajectory_id, format),
+            html,
+        } => {
+            if html {
+                commands::view::view_trajectory(trajectory_id, true)
+            } else {
+                commands::replay::replay_command(trajectory_id, format)
+            }
+        }
         Commands::Diff {
             trajectory_a,
             trajectory_b,
             format,
-        } => commands::diff::diff_command(trajectory_a, trajectory_b, format),
+            html,
+        } => {
+            if html {
+                commands::view::view_diff(trajectory_a, trajectory_b, true)
+            } else {
+                commands::diff::diff_command(trajectory_a, trajectory_b, format)
+            }
+        }
         Commands::Report {
             field_name,
             converged,
             failed,
             limit,
         } => commands::report::report_command(field_name, converged, failed, limit),
+        Commands::View { subcommand } => match subcommand {
+            ViewSubcommand::Trajectory {
+                trajectory_id,
+                no_open,
+            } => commands::view::view_trajectory(trajectory_id, !no_open),
+            ViewSubcommand::Eval { directory, no_open } => {
+                commands::view::view_eval(directory, !no_open)
+            }
+            ViewSubcommand::Diff {
+                trajectory_a,
+                trajectory_b,
+                no_open,
+            } => commands::view::view_diff(trajectory_a, trajectory_b, !no_open),
+            ViewSubcommand::Field {
+                field_name,
+                converged,
+                failed,
+                limit,
+                no_open,
+            } => commands::view::view_field_report(field_name, converged, failed, limit, !no_open),
+        },
     };
 
     if let Err(e) = result {

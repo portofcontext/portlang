@@ -1,0 +1,55 @@
+name = "01_get_balance"
+description = "Test retrieving the stripe balance"
+
+goal = """
+You have access to a Stripe MCP server
+
+Task:
+1. Use the Stripe MCP to get the account balance
+2. Write the balance information to a file named "balance.txt"
+3. The balance should show available and pending amounts
+
+Stop once you've retrieved and written the balance.
+"""
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.0
+max_tokens = 8000
+
+[environment]
+type = "local"
+root = "./workspace"
+
+[boundary]
+allow_write = ["balance.txt"]
+network = "allow"
+
+[context]
+max_tokens = 150000
+max_cost = "$2.00"
+max_steps = 20
+
+# [code_mode]
+# enabled = true
+
+[[mcp_server]]
+name = "stripe"
+command = "npx"
+args = ["-y", "@stripe/mcp"]
+env = { STRIPE_SECRET_KEY = "${STRIPE_SECRET_KEY}" }
+
+[[verifiers]]
+name = "balance-retrieved"
+command = """
+if [ -f "balance.txt" ]; then
+    echo "✓ Balance file created"
+    cat balance.txt
+    exit 0
+else
+    echo "✗ Balance file not found"
+    exit 1
+fi
+"""
+trigger = "on_stop"
+description = "Verify balance.txt was created with Stripe balance data"

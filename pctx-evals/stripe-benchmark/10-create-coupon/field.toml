@@ -1,0 +1,53 @@
+name = "10_create_coupon"
+description = "Reports the before count, creates a 25.5% off one-time-use coupon named EVAL25 with full JSON data, reports the after count, and confirms the count increased by 1"
+
+goal = """
+You have access to a Stripe MCP server connected to a test account.
+
+Task: First, count how many coupons exist in my Stripe account. Then create a one time use 25.5% off coupon with the name "EVAL25" that applies to all products. Finally count the coupons again and confirm the count increased by 1. Report the before count, the new coupon's full json data, and the after count.
+
+Write your answer to a file named "result.txt".
+"""
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.0
+max_tokens = 8000
+
+[environment]
+type = "local"
+root = "./workspace"
+
+[boundary]
+allow_write = ["result.txt", "*.json"]
+network = "allow"
+
+[context]
+max_tokens = 150000
+max_cost = "$2.00"
+max_steps = 30
+
+# [code_mode]
+# enabled = true
+
+[[mcp_server]]
+name = "stripe"
+command = "npx"
+args = ["-y", "@stripe/mcp"]
+env = { STRIPE_SECRET_KEY = "${STRIPE_SECRET_KEY}" }
+
+[[verifiers]]
+name = "result-file-exists"
+command = """
+test -f result.txt
+"""
+trigger = "on_stop"
+description = "result.txt must exist"
+
+[[verifiers]]
+name = "contains-expected-text"
+command = """
+grep -qi "EVAL25" result.txt && grep -qi "once" result.txt && grep -qi "25.5%" result.txt
+"""
+trigger = "on_stop"
+description = "Result must contain: EVAL25, once, 25.5%"

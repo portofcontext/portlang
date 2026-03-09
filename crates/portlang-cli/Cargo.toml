@@ -29,3 +29,6 @@ serde_json = { workspace = true }
 reqwest = { workspace = true }
 indicatif = "0.18"
 walkdir = { workspace = true }
+open = "5.0"
+dirs = "6.0"
+chrono = { workspace = true }
