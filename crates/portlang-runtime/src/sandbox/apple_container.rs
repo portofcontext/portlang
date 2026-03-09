@@ -3,6 +3,7 @@ use super::traits::{CommandOutput, Sandbox};
 use crate::tools::ToolRegistry;
 use async_trait::async_trait;
 use portlang_core::{Action, Boundary};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -187,23 +188,57 @@ RUN apt-get update && apt-get install -y {} && rm -rf /var/lib/apt/lists/*
         &self.container_id
     }
 
+    /// Normalize a path by stripping /workspace/ prefix
+    ///
+    /// The agent sees "Working Directory: /workspace" and uses absolute paths like "/workspace/file.txt",
+    /// but custom tools run on the host where files are at relative paths like "file.txt".
+    fn normalize_path(path: &str) -> String {
+        path.strip_prefix("/workspace/")
+            .or_else(|| path.strip_prefix("workspace/"))
+            .unwrap_or(path)
+            .to_string()
+    }
+
+    /// Recursively normalize paths in a JSON value
+    ///
+    /// Traverses the JSON structure and normalizes any string values that look like paths
+    /// (start with /workspace/ or workspace/)
+    fn normalize_paths_in_value(value: &Value) -> Value {
+        match value {
+            Value::String(s) => {
+                // Normalize if it looks like a workspace path
+                if s.starts_with("/workspace/") || s.starts_with("workspace/") {
+                    Value::String(Self::normalize_path(s))
+                } else {
+                    value.clone()
+                }
+            }
+            Value::Object(map) => {
+                let mut new_map = serde_json::Map::new();
+                for (k, v) in map {
+                    new_map.insert(k.clone(), Self::normalize_paths_in_value(v));
+                }
+                Value::Object(new_map)
+            }
+            Value::Array(arr) => {
+                Value::Array(arr.iter().map(|v| Self::normalize_paths_in_value(v)).collect())
+            }
+            _ => value.clone(),
+        }
+    }
+
     fn is_write_allowed(&self, path: &str) -> bool {
         if self.boundary.allow_write.is_empty() {
             return false;
         }
 
-        // Normalize path: strip /workspace/ prefix to match relative patterns
-        // The model sees "Working Directory: /workspace" so it naturally uses absolute paths,
-        // but boundary patterns are typically relative (e.g., "result.txt", not "/workspace/result.txt")
-        let normalized_path = path
-            .strip_prefix("/workspace/")
-            .or_else(|| path.strip_prefix("workspace/"))
-            .unwrap_or(path);
+        // Normalize path to match relative patterns
+        let normalized_path = Self::normalize_path(path);
 
         for pattern in &self.boundary.allow_write {
             if let Ok(glob_pattern) = glob::Pattern::new(pattern) {
                 // Try matching both the normalized path and original path
-                if glob_pattern.matches(normalized_path) || glob_pattern.matches(path) {
+                if glob_pattern.matches(&normalized_path) || glob_pattern.matches(path) {
                     return true;
                 }
             }
@@ -312,10 +347,12 @@ impl Sandbox for AppleContainerSandbox {
                     }
 
                     // For all other tools, delegate to the registry
-                    // This includes: custom tools, code_mode, MCP tools, etc.
+                    // This includes: custom tools (Python, shell), code_mode, MCP tools, etc.
+                    // These run on the host, so we need to normalize /workspace/ paths to relative paths
                     _ => {
+                        let normalized_input = Self::normalize_paths_in_value(&input);
                         self.registry
-                            .execute(tool.as_str(), &self.host_workspace, input.clone())
+                            .execute(tool.as_str(), &self.host_workspace, normalized_input)
                             .await
                     }
                 }

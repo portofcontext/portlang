@@ -103,7 +103,7 @@ pub async fn run_command(field_path: PathBuf) -> Result<()> {
 
     // Show command to view the trajectory
     println!("\nTo view the trajectory:");
-    println!("  portlang view {}", trajectory.id.filename());
+    println!("  portlang view trajectory {}", trajectory.id.filename());
 
     Ok(())
 }

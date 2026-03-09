@@ -5,3 +5,5 @@ skills-lock.json
 
 .claude/
 .agents/pctx-evals/*/workspace/
+
+__pycache__

@@ -67,16 +67,11 @@ impl EnvironmentContext {
     pub fn format_for_prompt(&self) -> String {
         let mut prompt = String::from("\n=== ENVIRONMENT CONTEXT ===\n\n");
 
-        prompt.push_str(&format!(
-            "Working Directory: {}\n\n",
-            self.working_directory.display()
-        ));
-
-        prompt.push_str("Directory Structure:\n");
+        prompt.push_str("Workspace Files:\n");
         if let Some(tree) = &self.directory_tree {
             prompt.push_str(tree);
         } else {
-            prompt.push_str("  (no structure available)\n");
+            prompt.push_str("  (empty workspace)\n");
         }
 
         if let Some(custom) = &self.custom_context {
@@ -127,8 +122,7 @@ mod tests {
         };
 
         let prompt = ctx.format_for_prompt();
-        assert!(prompt.contains("Working Directory: /workspace"));
-        assert!(prompt.contains("Directory Structure:"));
+        assert!(prompt.contains("Workspace Files:"));
         assert!(prompt.contains("file.txt"));
         assert!(prompt.contains("=== ENVIRONMENT CONTEXT ==="));
         assert!(prompt.contains("=== END ENVIRONMENT ==="));
@@ -156,6 +150,6 @@ mod tests {
         };
 
         let prompt = ctx.format_for_prompt();
-        assert!(prompt.contains("(no structure available)"));
+        assert!(prompt.contains("(empty workspace)"));
     }
 }

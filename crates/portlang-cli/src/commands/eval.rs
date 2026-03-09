@@ -162,5 +162,9 @@ pub async fn eval_command(directory: PathBuf) -> Result<()> {
         }
     }
 
+    println!();
+    println!("To view the eval results:");
+    println!("  portlang view eval {}", directory.display());
+
     Ok(())
 }
