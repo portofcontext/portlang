@@ -8,7 +8,8 @@ pub struct RawField {
     #[serde(default)]
     pub description: Option<String>,
     pub model: RawModel,
-    pub environment: RawEnvironment,
+    #[serde(default)]
+    pub environment: Option<RawEnvironment>,
     #[serde(default)]
     pub boundary: Option<RawBoundary>,
     #[serde(default)]
@@ -89,10 +90,15 @@ pub struct RawModel {
     pub max_tokens: Option<u32>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
-pub enum RawEnvironment {
-    Local { root: String },
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct RawEnvironment {
+    #[serde(default = "default_workspace_root")]
+    pub root: String,
+}
+
+fn default_workspace_root() -> String {
+    "./workspace".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

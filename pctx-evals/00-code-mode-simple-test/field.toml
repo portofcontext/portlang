@@ -19,10 +19,6 @@ name = "anthropic/claude-sonnet-4.6"
 temperature = 0.0
 max_tokens = 2000
 
-[environment]
-type = "local"
-root = "./workspace"
-
 [boundary]
 allow_write = ["result.txt"]
 network = "deny"

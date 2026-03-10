@@ -80,13 +80,15 @@ fn convert_raw_field(raw: RawField, config_dir: Option<PathBuf>) -> Result<Field
         max_tokens: raw.model.max_tokens,
     };
 
-    // Parse environment with path resolution
-    let environment = match raw.environment {
-        RawEnvironment::Local { root } => {
-            let resolved = resolve_path(&root);
-            Environment::Local {
-                root: resolved.to_string_lossy().to_string(),
-            }
+    // Parse environment with path resolution; defaults to ./workspace
+    let environment = {
+        let root = raw
+            .environment
+            .map(|e| e.root)
+            .unwrap_or_else(|| "./workspace".to_string());
+        let resolved = resolve_path(&root);
+        Environment::Local {
+            root: resolved.to_string_lossy().to_string(),
         }
     };
 
@@ -359,15 +361,57 @@ fn convert_raw_field(raw: RawField, config_dir: Option<PathBuf>) -> Result<Field
         })
         .collect::<Result<Vec<_>>>()?;
 
-    // Parse container config
-    let container = raw
-        .container
-        .map(|raw_container| ContainerConfig {
-            packages: raw_container.packages,
-            dockerfile: raw_container.dockerfile,
-            image: raw_container.image,
-        })
-        .unwrap_or_default();
+    // Auto-detect required container packages from field configuration.
+    // Users can always override or extend via the [container] section.
+    let mut auto_packages: Vec<String> = vec![];
+
+    // Python tools need python3 in the container
+    let has_python_tool = custom_tools.iter().any(|t| t.tool_type == "python");
+    if has_python_tool {
+        auto_packages.push("python3".to_string());
+    }
+
+    // MCP servers: npx needs Node.js + npm, uvx needs python3 + uv
+    for server in &mcp_servers {
+        if let McpTransport::Stdio { command, .. } = &server.transport {
+            match command.as_str() {
+                "npx" => {
+                    for pkg in ["nodejs", "npm"] {
+                        if !auto_packages.iter().any(|p| p == pkg) {
+                            auto_packages.push(pkg.to_string());
+                        }
+                    }
+                }
+                "uvx" => {
+                    for pkg in ["python3", "uv"] {
+                        if !auto_packages.iter().any(|p| p == pkg) {
+                            auto_packages.push(pkg.to_string());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Parse container config, merging auto-detected packages with explicit ones
+    let container = {
+        let mut cfg = raw
+            .container
+            .map(|raw_container| ContainerConfig {
+                packages: raw_container.packages,
+                dockerfile: raw_container.dockerfile,
+                image: raw_container.image,
+            })
+            .unwrap_or_default();
+        // Add auto-detected packages only if not already explicitly listed
+        for pkg in auto_packages {
+            if !cfg.packages.contains(&pkg) {
+                cfg.packages.push(pkg);
+            }
+        }
+        cfg
+    };
 
     Ok(Field {
         name: raw.name,
@@ -401,10 +445,6 @@ mod tests {
 
             [model]
             name = "claude-sonnet-4-5"
-
-            [environment]
-            type = "local"
-            root = "/tmp/test"
         "#;
 
         let field = parse_field_from_str(toml).unwrap();
@@ -421,10 +461,6 @@ mod tests {
 
             [model]
             name = "claude-sonnet-4-5"
-
-            [environment]
-            type = "local"
-            root = "/tmp/test"
 
             [context]
             max_cost = "$2.50"
@@ -443,10 +479,6 @@ mod tests {
             [model]
             name = "claude-sonnet-4-5"
 
-            [environment]
-            type = "local"
-            root = "/tmp/test"
-
             [context]
             max_cost = 2.5
         "#;
@@ -464,10 +496,6 @@ mod tests {
 
             [model]
             name = "claude-sonnet-4-5"
-
-            [environment]
-            type = "local"
-            root = "/tmp/test"
         "#;
 
         let result = parse_field_from_str(toml);
@@ -482,10 +510,6 @@ mod tests {
 
             [model]
             name = "claude-sonnet-4-5"
-
-            [environment]
-            type = "local"
-            root = "/tmp/test"
 
             [boundary]
             allow_write = ["*.txt", "src/**/*.rs"]
@@ -527,7 +551,6 @@ def add(x: int, y: int = 0) -> int:
             name = "claude-sonnet-4-5"
 
             [environment]
-            type = "local"
             root = "/tmp/test"
 
             [[tool]]
@@ -589,7 +612,6 @@ Available Tools:
             name = "claude-sonnet-4-5"
 
             [environment]
-            type = "local"
             root = "/tmp/test"
         "#;
 
@@ -614,10 +636,6 @@ goal = "test"
 
 [model]
 name = "test"
-
-[environment]
-type = "local"
-root = "./workspace"
         "#;
 
         std::fs::write(&field_path, toml).unwrap();
@@ -643,7 +661,6 @@ goal = "test"
 name = "test"
 
 [environment]
-type = "local"
 root = "/absolute/path/workspace"
         "#;
 
@@ -685,10 +702,6 @@ goal = "test"
 [model]
 name = "test"
 
-[environment]
-type = "local"
-root = "./workspace"
-
 [[tool]]
 type = "python"
 script = "./tools/calc.py"
@@ -718,10 +731,6 @@ goal = "test"
 
 [model]
 name = "test"
-
-[environment]
-type = "local"
-root = "./workspace"
         "#;
 
         let field = parse_field_from_str(toml).unwrap();

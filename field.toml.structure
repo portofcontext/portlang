@@ -1,0 +1,62 @@
+# field.toml structure
+# All fields are optional unless marked (required)
+
+name = "..."                    # (required) identifier, used in trajectory storage
+description = "..."             # human-readable summary
+
+[model]                         # (required)
+name = "..."                    # (required) e.g. "anthropic/claude-sonnet-4.6"
+temperature = 0.5               # sampling temperature, default 0.5
+max_tokens = 8000               # max tokens per API call (not total budget)
+
+[prompt]                        # (required)
+goal = "..."                    # (required) initial task, enters context at step 0
+system = "..."                  # optional system prompt prepended to all interactions
+re_observation = ["cmd", ...]   # commands that run before each step to refresh context
+
+[environment]                   # optional, all fields have defaults
+root = "./workspace"            # working directory (maps to /workspace in container)
+packages = ["nodejs", "npm"]    # apt packages; uv installed via pip if listed
+dockerfile = "./Dockerfile"     # custom Dockerfile (overrides packages)
+image = "custom:image"          # pre-built image (overrides dockerfile and packages)
+
+[boundary]                      # optional
+allow_write = ["*.txt", ...]    # glob patterns for writable paths; default: none
+network = "deny" | "allow"      # default: allow
+max_tokens = 150000             # hard ceiling on total context tokens across entire run
+max_cost = "$2.00"              # hard ceiling on total cost
+max_steps = 30                  # hard ceiling on agent steps
+
+[[tool]]                        # repeatable; zero or more
+type = "python"                 # --- python tool ---
+file = "./tools/calc.py"        # path to Python file (required)
+function = "execute"            # function to call; if omitted, all functions are exposed
+name = "..."                    # optional override; auto-extracted from function name
+description = "..."             # optional override; auto-extracted from docstring
+input_schema = {}               # optional override; auto-extracted from type hints
+output_schema = {}              # optional; JSON schema for structured output from this tool
+
+[[tool]]
+type = "shell"                  # --- shell tool ---
+name = "..."                    # (required)
+description = "..."             # (required)
+command = "..."                 # shell command template (required)
+input_schema = {}               # JSON schema for inputs (required)
+
+[[tool]]
+type = "mcp"                    # --- MCP server ---
+name = "..."                    # (required) used as MCP namespace
+command = "npx" | "uvx" | "..." # executable (required for stdio transport)
+args = ["-y", "@stripe/mcp"]   # arguments
+env = { KEY = "${KEY}" }        # environment variables; ${VAR} expands from host env
+url = "https://..."             # for http/sse transport (replaces command/args)
+headers = { Authorization = "Bearer ${TOKEN}" }  # for http/sse transport
+transport = "stdio" | "http" | "sse"  # default: stdio
+
+[[verifier]]                    # repeatable; zero or more
+name = "..."                    # (required) identifier
+command = "..."                 # (required) shell command; exit 0 = pass, nonzero = fail
+trigger = "on_stop"             # when to run (currently only on_stop)
+description = "..."             # injected into context on failure
+
+[output_schema]                 # optional; JSON schema for structured output validation as string

@@ -11,10 +11,6 @@ name = "anthropic/claude-sonnet-4.6"
 temperature = 1.0
 max_tokens = 1000
 
-[environment]
-type = "local"
-root = "./workspace"
-
 [boundary]
 allow_write = ["*.py"]
 

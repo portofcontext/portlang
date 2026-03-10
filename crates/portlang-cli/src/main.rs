@@ -117,7 +117,7 @@ enum Commands {
         #[arg(long)]
         limit: Option<usize>,
     },
-    /// View trajectories as interactive HTML
+    /// View evals and trajectories as interactive HTML
     View {
         #[command(subcommand)]
         subcommand: ViewSubcommand,

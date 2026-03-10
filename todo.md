@@ -108,10 +108,6 @@ goal = "Create hello.py that prints 'Hello, World!'"
 name = "anthropic/claude-sonnet-4.6"
 max_tokens = 4000
 
-[environment]
-type = "local"
-root = "./workspace"
-
 [boundary]
 allow_write = ["hello.py"]
 network = "deny"
@@ -143,9 +139,8 @@ The developer declares a search space: what the agent can see (environment), wha
 - `temperature`: Sampling temperature (default 1.0)
 - `max_tokens`: Max tokens per API call (not total budget)
 
-**[environment]:**
-- `type`: Currently only "local" supported
-- `root`: Working directory for agent (maps to /workspace in container)
+**[environment]** *(optional)*:
+- `root`: Working directory for agent (maps to /workspace in container). Defaults to `./workspace`.
 
 **[boundary]:**
 - `allow_write`: Glob patterns for writable files

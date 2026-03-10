@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # /// script
-# dependencies = []
+# dependencies = [requests]
 # ///
+
 
 def execute(expression: str) -> dict:
     """
@@ -15,22 +16,11 @@ def execute(expression: str) -> dict:
     """
 
     if not expression:
-        return {
-            "status": "error",
-            "error": "Missing 'expression' field"
-        }
+        return {"status": "error", "error": "Missing 'expression' field"}
 
     try:
         # Safe evaluation of math expressions
         result = eval(expression, {"__builtins__": {}}, {})
-        return {
-            "status": "success",
-            "result": result,
-            "expression": expression
-        }
+        return {"status": "success", "result": result, "expression": expression}
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e),
-            "expression": expression
-        }
+        return {"status": "error", "error": str(e), "expression": expression}

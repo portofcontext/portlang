@@ -6,10 +6,6 @@ goal = "Use GitHub Copilot MCP to search for code examples and get file contents
 name = "anthropic/claude-sonnet-4.6"
 temperature = 0.0
 
-[environment]
-type = "local"
-root = "./workspace"
-
 [[mcp_server]]
 name = "github-copilot"
 transport = "sse"

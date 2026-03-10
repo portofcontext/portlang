@@ -38,15 +38,14 @@ impl AppleContainerSandbox {
         }
 
         if !config.packages.is_empty() {
-            // Build image with additional packages
+            // Build image with required packages
             tracing::info!("Building image with packages: {:?}", config.packages);
             return Self::build_with_packages(&config.packages, container_name).await;
         }
 
-        // Default: Build image with Python, Node.js, and jq (for MCP servers, Python tools, and JSON validation)
-        tracing::info!("Building default image with Python 3, Node.js LTS, and jq");
-        let default_packages = vec!["nodejs".to_string(), "npm".to_string(), "jq".to_string()];
-        Self::build_with_packages(&default_packages, container_name).await
+        // Default: minimal debian image with nothing extra installed
+        tracing::info!("Using default debian:bookworm-slim image");
+        Ok("debian:bookworm-slim".to_string())
     }
 
     /// Build container image from custom Dockerfile
@@ -70,13 +69,30 @@ impl AppleContainerSandbox {
 
     /// Build container image with additional packages
     async fn build_with_packages(packages: &[String], tag: &str) -> Result<String> {
-        // Create a temporary Dockerfile
-        let dockerfile_content = format!(
-            r#"FROM python:3-slim
-RUN apt-get update && apt-get install -y {} && rm -rf /var/lib/apt/lists/*
-"#,
-            packages.join(" ")
-        );
+        // Separate apt packages from pip packages (uv is not in apt)
+        let apt_packages: Vec<&str> = packages
+            .iter()
+            .filter(|p| p.as_str() != "uv")
+            .map(|s| s.as_str())
+            .collect();
+        let has_uv = packages.iter().any(|p| p == "uv");
+
+        let mut dockerfile_lines = vec!["FROM debian:bookworm-slim".to_string()];
+
+        if !apt_packages.is_empty() {
+            dockerfile_lines.push(format!(
+                "RUN apt-get update && apt-get install -y {} && rm -rf /var/lib/apt/lists/*",
+                apt_packages.join(" ")
+            ));
+        }
+
+        // uv is installed via pip (requires python3 to already be in apt_packages)
+        if has_uv {
+            dockerfile_lines
+                .push("RUN python3 -m pip install uv --break-system-packages".to_string());
+        }
+
+        let dockerfile_content = dockerfile_lines.join("\n") + "\n";
 
         // Write to temp file
         let temp_dockerfile = std::env::temp_dir().join(format!("Dockerfile.{}", tag));
@@ -220,9 +236,11 @@ RUN apt-get update && apt-get install -y {} && rm -rf /var/lib/apt/lists/*
                 }
                 Value::Object(new_map)
             }
-            Value::Array(arr) => {
-                Value::Array(arr.iter().map(|v| Self::normalize_paths_in_value(v)).collect())
-            }
+            Value::Array(arr) => Value::Array(
+                arr.iter()
+                    .map(|v| Self::normalize_paths_in_value(v))
+                    .collect(),
+            ),
             _ => value.clone(),
         }
     }

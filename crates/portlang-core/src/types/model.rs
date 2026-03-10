@@ -23,7 +23,7 @@ impl ModelSpec {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            temperature: Some(1.0),
+            temperature: Some(0.5),
             max_tokens: None,
         }
     }

@@ -22,7 +22,7 @@ impl OpenRouterProvider {
         Ok(Self {
             client,
             model: model.to_string(),
-            temperature: Some(1.0),
+            temperature: Some(0.5),
             max_tokens: 4096,
         })
     }

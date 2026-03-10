@@ -64,10 +64,6 @@ goal = "Read sales.csv, calculate revenue per region, output summary.json"
 [model]
 name = "anthropic/claude-sonnet-4.6"
 
-[environment]
-type = "local"
-root = "./workspace"
-
 [boundary]
 allow_write = ["summary.json"]          # Only output file
 allow_read = ["sales.csv"]              # Only input file

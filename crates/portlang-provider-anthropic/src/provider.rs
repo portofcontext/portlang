@@ -70,7 +70,7 @@ impl AnthropicProvider {
         Ok(Self {
             client,
             model: map_model_name(model),
-            temperature: Some(1.0),
+            temperature: Some(0.5),
             max_tokens: 4096,
         })
     }
