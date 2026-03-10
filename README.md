@@ -28,7 +28,10 @@ Agent behavior is search through a conditioned space. The policy is trained and 
 git clone https://github.com/portofcontext/portlang
 cd portlang
 cargo build --release
-export ANTHROPIC_API_KEY=sk-ant-...
+
+# Set an API Key
+export OPENROUTER_API_KEY=...
+export ANTHROPIC_API_KEY=...
 
 # Run a field
 ./target/release/portlang run examples/02-code-task/field.toml
@@ -125,6 +128,28 @@ Get convergence rate, token distribution, and adaptation report showing which to
 | **Verifier** | Success criteria that run and inject feedback into context window |
 | **Context Policy** | Token budget (hard ceiling) and re-observation schedule |
 | **Trajectory** | Complete event log—replayable, diffable, queryable |
+
+## Security
+
+Agent code runs in isolated containers using [Apple Container](https://developer.apple.com/documentation/virtualization). Boundaries are enforced at runtime, not through prompts.
+
+**Sandboxing:**
+- Workspace isolated from host filesystem
+- Network access denied by default (`network = "deny"`)
+- Write permissions granted via glob patterns in `[boundary]`
+- Hard limits on steps, cost, and tokens
+
+**Enforcement:**
+- Invalid writes rejected before execution
+- Path traversal (`../`) blocked
+- Custom Python/shell tools run with normalized paths
+- Boundary violations recorded in trajectory with context trace
+
+**Threat Model:**
+- ✓ Protects: Unauthorized file access, data exfiltration, resource exhaustion
+- ✗ Doesn't protect: API key exfiltration, prompt injection, malicious `field.toml`
+
+Treat `field.toml` as code. Review tool definitions and boundary policies before running untrusted fields.
 
 ## Commands
 
