@@ -14,15 +14,22 @@
 
 </div>
 
+We're currently using portlang to evaluate code mode implementations and measure how environment design impacts model performance on complex tasks. The framework started as an evaluation harness but is growing into a broader platform for building reliable agents—where you declare constraints and success criteria, and the runtime handles execution, sandboxing, and trajectory recording.
+
+<details>
+<summary><b>Design Philosophy</b></summary>
+
+<br>
+
 Most agent frameworks manage loops. portlang manages environments. You declare what success looks like, what the agent can observe, and what it cannot do. The runtime executes the search and records the trajectory.
 
-## Why
+**Why This Approach**
 
 Agent behavior is search through a conditioned space. The policy is trained and opaque. The only variables you control are the environment and the context window. When tasks grow long—overnight refactors, multi-file changes, data pipelines—prompts stop being enough. You need structure: boundaries that eliminate bad trajectories, verifiers that steer the search, and trajectories you can replay when things diverge.
 
-## Getting Started
+</details>
 
-**Prerequisites:** Rust 1.89+, Anthropic API key, [Apple Container](https://developer.apple.com/documentation/virtualization)
+## Getting Started
 
 ```bash
 git clone https://github.com/portofcontext/portlang
@@ -33,11 +40,11 @@ cargo build --release
 export OPENROUTER_API_KEY=...
 export ANTHROPIC_API_KEY=...
 
+# Helps install apple container dependency
+./target/release/portlang init --start
+
 # Run a field
 ./target/release/portlang run examples/02-code-task/field.toml
-
-# Check environment
-./target/release/portlang init
 ```
 
 ### portlang skill
@@ -47,8 +54,6 @@ Install the portlang skill for interactive guidance:
 ```bash
 npx skills add https://github.com/portofcontext/skills --skill portlang
 ```
-
-Get help with creating fields, defining verifiers, debugging trajectories, and optimizing agent reliability.
 
 ## Example: Data Processing with Multi-Layer Verification
 
@@ -160,9 +165,12 @@ portlang eval <directory>         # Run all fields, report aggregate stats
 portlang converge <field> -n N    # Run N times, measure convergence rate
 portlang replay <id>              # Step through trajectory
 portlang diff <id-a> <id-b>       # Find divergence point
-portlang report <field>           # Adaptation analysis across runs
+portlang view trajectory <field>  # Adaptation analysis across runs
+portlang view eval <directory>.   # Analytics for an eval run
 ```
 
-## More
+## Examples
 
-- [Examples](examples/) - Five examples from minimal to complex
+[Basic Examples](examples/) Five examples from minimal to complex
+
+[Code Mode Evals](pctx-evals/) Evals specific to Code Mode
