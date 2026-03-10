@@ -46,6 +46,8 @@ export ANTHROPIC_API_KEY=...
 # Run a field
 ./target/release/portlang run examples/02-code-task/field.toml
 ```
+### portlang CLI
+Complete reference here: [CLI Reference](./CLI.md)
 
 ### portlang skill
 

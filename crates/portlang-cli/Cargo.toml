@@ -20,6 +20,7 @@ portlang-provider-anthropic = { workspace = true }
 portlang-provider-openrouter = { workspace = true }
 portlang-check = { workspace = true }
 clap = { workspace = true }
+clap-markdown = "0.1"
 tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
@@ -28,6 +29,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 indicatif = "0.18"
+dialoguer = "0.12"
 walkdir = { workspace = true }
 open = "5.0"
 dirs = "6.0"

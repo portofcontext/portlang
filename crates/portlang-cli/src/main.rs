@@ -16,6 +16,93 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Create a new field.toml
+    New {
+        /// Output path (file or directory); defaults to ./field.toml
+        path: Option<PathBuf>,
+
+        /// Walk through field creation step by step
+        #[arg(long)]
+        interactive: bool,
+
+        /// Field name (required without --interactive)
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Human-readable description of the field
+        #[arg(long)]
+        description: Option<String>,
+
+        /// Model identifier, e.g. "anthropic/claude-sonnet-4.6" or "openai/gpt-4o"
+        #[arg(long, default_value = "anthropic/claude-sonnet-4.6")]
+        model: String,
+
+        /// Sampling temperature 0.0–1.0
+        #[arg(long, default_value = "1.0")]
+        temperature: f32,
+
+        /// Agent goal / initial task prompt (required without --interactive)
+        #[arg(long)]
+        goal: Option<String>,
+
+        /// System prompt prepended to every agent interaction
+        #[arg(long)]
+        system: Option<String>,
+
+        /// Command run before each step to refresh agent context (repeatable)
+        #[arg(long = "re-observation")]
+        re_observation: Vec<String>,
+
+        /// APT packages to install in the container (repeatable; use "uv" to install uv via pip)
+        #[arg(long)]
+        package: Vec<String>,
+
+        /// Glob pattern the agent may write to (repeatable, e.g. --allow-write "*.txt")
+        #[arg(long = "allow-write")]
+        allow_write: Vec<String>,
+
+        /// Network access policy: "allow" or "deny"
+        #[arg(long, default_value = "allow")]
+        network: String,
+
+        /// Hard ceiling on total agent steps
+        #[arg(long, default_value = "20")]
+        max_steps: u64,
+
+        /// Hard ceiling on total cost, e.g. "$1.00"
+        #[arg(long, default_value = "$1.00")]
+        max_cost: String,
+
+        /// Hard ceiling on total context tokens
+        #[arg(long)]
+        max_tokens: Option<u64>,
+
+        /// Tool definition as JSON (repeatable).
+        ///
+        /// Python tool:
+        ///   --tool '{"type":"python","file":"./tools/calc.py","function":"execute"}'
+        ///   Optional: "name", "description" (override auto-extracted values)
+        ///
+        /// Shell tool:
+        ///   --tool '{"type":"shell","name":"run_sql","description":"Run a SQL query","command":"sqlite3 db.sqlite"}'
+        ///
+        /// MCP tool (stdio):
+        ///   --tool '{"type":"mcp","name":"stripe","command":"npx","args":["-y","@stripe/mcp"],"env":{"STRIPE_SECRET_KEY":"${STRIPE_SECRET_KEY}"}}'
+        ///
+        /// MCP tool (http/sse):
+        ///   --tool '{"type":"mcp","name":"myserver","url":"https://example.com/mcp","headers":{"Authorization":"Bearer ${TOKEN}"},"transport":"sse"}'
+        #[arg(long)]
+        tool: Vec<String>,
+
+        /// Verifier definition as JSON (repeatable).
+        ///
+        /// Example:
+        ///   --verifier '{"name":"check-file","command":"test -f result.txt","trigger":"on_stop","description":"result.txt must exist"}'
+        ///
+        /// trigger: "on_stop" | "always" | "on_write" (default: "on_stop")
+        #[arg(long)]
+        verifier: Vec<String>,
+    },
     /// Initialize and check portlang environment
     Init {
         /// Automatically download and install Apple Container
@@ -122,6 +209,8 @@ enum Commands {
         #[command(subcommand)]
         subcommand: ViewSubcommand,
     },
+    /// Print CLI reference documentation as Markdown
+    Docs,
 }
 
 #[derive(Subcommand)]
@@ -192,6 +281,43 @@ async fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
+        Commands::New {
+            path,
+            interactive,
+            name,
+            description,
+            model,
+            temperature,
+            goal,
+            system,
+            re_observation,
+            package,
+            allow_write,
+            network,
+            max_steps,
+            max_cost,
+            max_tokens,
+            tool,
+            verifier,
+        } => commands::new::new_command(commands::new::NewArgs {
+            path,
+            interactive,
+            name,
+            description,
+            model,
+            temperature,
+            goal,
+            system,
+            re_observation,
+            packages: package,
+            allow_write,
+            network,
+            max_steps,
+            max_cost,
+            max_tokens,
+            tools: tool,
+            verifiers: verifier,
+        }),
         Commands::Init { install, start } => {
             if install {
                 commands::init::init_install_command().await
@@ -248,6 +374,12 @@ async fn main() {
             failed,
             limit,
         } => commands::report::report_command(field_name, converged, failed, limit),
+        Commands::Docs => {
+            let markdown = clap_markdown::help_markdown::<Cli>();
+            std::fs::write("CLI.md", &markdown).expect("failed to write CLI.md");
+            println!("CLI.md written.");
+            return;
+        }
         Commands::View { subcommand } => match subcommand {
             ViewSubcommand::Trajectory {
                 trajectory_id,

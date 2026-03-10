@@ -21,19 +21,15 @@ pub struct Verifier {
 /// When to trigger a verifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum VerifierTrigger {
     /// Run after every action
     Always,
     /// Run only when agent stops
+    #[default]
     OnStop,
     /// Run after specific tool calls
     OnWrite,
-}
-
-impl Default for VerifierTrigger {
-    fn default() -> Self {
-        VerifierTrigger::OnStop
-    }
 }
 
 /// Result of running a verifier

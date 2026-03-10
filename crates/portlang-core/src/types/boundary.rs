@@ -40,15 +40,11 @@ impl Default for Boundary {
 /// Network access policy
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum NetworkPolicy {
     /// Allow all network access
     Allow,
     /// Deny all network access
+    #[default]
     Deny,
-}
-
-impl Default for NetworkPolicy {
-    fn default() -> Self {
-        NetworkPolicy::Deny
-    }
 }
