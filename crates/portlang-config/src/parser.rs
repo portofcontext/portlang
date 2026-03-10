@@ -56,6 +56,21 @@ fn parse_field_from_str_with_context(toml_str: &str, config_dir: Option<PathBuf>
     convert_raw_field(raw, config_dir)
 }
 
+/// Parse cost from StringOrNumber
+pub fn parse_cost(cost: &StringOrNumber) -> Result<Cost> {
+    match cost {
+        StringOrNumber::String(s) => {
+            // Parse "$X.XX" format
+            let s = s.trim();
+            let s = s.strip_prefix('$').unwrap_or(s);
+            s.parse::<f64>()
+                .map(Cost::from_dollars)
+                .map_err(|_| FieldParseError::InvalidField(format!("Invalid cost: {}", s)))
+        }
+        StringOrNumber::Number(n) => Ok(Cost::from_dollars(*n)),
+    }
+}
+
 /// Convert raw field to validated field
 fn convert_raw_field(raw: RawField, config_dir: Option<PathBuf>) -> Result<Field> {
     // Helper function to resolve relative paths
@@ -77,19 +92,19 @@ fn convert_raw_field(raw: RawField, config_dir: Option<PathBuf>) -> Result<Field
     let model = ModelSpec {
         name: raw.model.name,
         temperature: raw.model.temperature,
-        max_tokens: raw.model.max_tokens,
     };
 
-    // Parse environment with path resolution; defaults to ./workspace
-    let environment = {
-        let root = raw
-            .environment
-            .map(|e| e.root)
-            .unwrap_or_else(|| "./workspace".to_string());
-        let resolved = resolve_path(&root);
-        Environment::Local {
+    // Parse environment with path resolution
+    let environment = if let Some(raw_env) = raw.environment {
+        let resolved = resolve_path(&raw_env.root);
+        Environment {
             root: resolved.to_string_lossy().to_string(),
+            packages: raw_env.packages,
+            dockerfile: raw_env.dockerfile,
+            image: raw_env.image,
         }
+    } else {
+        Environment::default()
     };
 
     // Parse boundary
@@ -108,31 +123,22 @@ fn convert_raw_field(raw: RawField, config_dir: Option<PathBuf>) -> Result<Field
             }
         };
 
+        let max_cost = raw_boundary.max_cost.as_ref().map(parse_cost).transpose()?;
+
         Boundary {
             allow_write: raw_boundary.allow_write,
             network,
+            max_tokens: raw_boundary.max_tokens,
+            max_cost,
+            max_steps: raw_boundary.max_steps,
         }
     } else {
         Boundary::default()
     };
 
-    // Parse context
-    let context = if let Some(raw_context) = raw.context {
-        let max_cost = raw_context.max_cost.as_ref().map(parse_cost).transpose()?;
-
-        ContextPolicy {
-            max_tokens: raw_context.max_tokens,
-            max_cost,
-            max_steps: raw_context.max_steps,
-            system_prompt: raw_context.system_prompt,
-        }
-    } else {
-        ContextPolicy::default()
-    };
-
     // Parse verifiers
     let verifiers = raw
-        .verifiers
+        .verifier
         .into_iter()
         .map(|raw_verifier| {
             let trigger = match raw_verifier.trigger.as_deref() {
@@ -156,8 +162,8 @@ fn convert_raw_field(raw: RawField, config_dir: Option<PathBuf>) -> Result<Field
         })
         .collect::<Result<Vec<_>>>()?;
 
-    // Parse custom tools
-    let mut custom_tools = Vec::new();
+    // Parse tools
+    let mut tools: Vec<Tool> = Vec::new();
 
     for raw_tool in raw.tool {
         match raw_tool.tool_type.as_str() {
@@ -166,15 +172,15 @@ fn convert_raw_field(raw: RawField, config_dir: Option<PathBuf>) -> Result<Field
                 let needs_discovery = raw_tool.name.is_none() || raw_tool.input_schema.is_none();
 
                 if needs_discovery {
-                    // Must have script path for discovery
-                    let script_path_str = raw_tool.script.as_ref().ok_or_else(|| {
+                    // Must have file path for discovery
+                    let file_path_str = raw_tool.file.as_ref().ok_or_else(|| {
                         FieldParseError::InvalidField(
-                            "Python tool missing 'script' field for auto-discovery".to_string(),
+                            "Python tool missing 'file' field for auto-discovery".to_string(),
                         )
                     })?;
 
-                    // Resolve the script path
-                    let script_path = resolve_path(script_path_str);
+                    // Resolve the file path
+                    let file_path = resolve_path(file_path_str);
 
                     // Extract tool metadata from Python file
                     use crate::python_extractor::PythonToolExtractor;
@@ -189,85 +195,194 @@ fn convert_raw_field(raw: RawField, config_dir: Option<PathBuf>) -> Result<Field
                     // Otherwise, extract all functions
                     if let Some(ref function_name) = raw_tool.function {
                         let tool_meta = extractor
-                            .extract_function(&script_path, function_name)
+                            .extract_function(&file_path, function_name)
                             .map_err(|e| {
                                 FieldParseError::InvalidField(format!(
                                     "Failed to extract function '{}' from {}: {}",
                                     function_name,
-                                    script_path.display(),
+                                    file_path.display(),
                                     e
                                 ))
                             })?;
 
-                        custom_tools.push(CustomTool {
-                            name: raw_tool.name.unwrap_or(tool_meta.name.clone()),
-                            description: raw_tool
-                                .description
-                                .or(tool_meta.description)
-                                .unwrap_or_default(),
+                        tools.push(Tool {
                             tool_type: "python".to_string(),
-                            command: None,
-                            script: Some(script_path.to_string_lossy().to_string()),
+                            name: Some(raw_tool.name.unwrap_or(tool_meta.name.clone())),
+                            description: Some(
+                                raw_tool
+                                    .description
+                                    .or(tool_meta.description)
+                                    .unwrap_or_default(),
+                            ),
+                            file: Some(file_path.to_string_lossy().to_string()),
                             function: Some(tool_meta.name),
                             input_schema: raw_tool.input_schema.unwrap_or(tool_meta.input_schema),
+                            output_schema: raw_tool.output_schema,
+                            command: None,
+                            args: vec![],
+                            env: std::collections::HashMap::new(),
+                            url: None,
+                            headers: None,
+                            transport: None,
                         });
                     } else {
                         // Extract all functions from file
-                        let tools = extractor.extract_tools(&script_path).map_err(|e| {
+                        let tool_metas = extractor.extract_tools(&file_path).map_err(|e| {
                             FieldParseError::InvalidField(format!(
                                 "Failed to extract tools from {}: {}",
-                                script_path.display(),
+                                file_path.display(),
                                 e
                             ))
                         })?;
 
-                        for tool_meta in tools {
-                            custom_tools.push(CustomTool {
-                                name: tool_meta.name.clone(),
-                                description: tool_meta.description.unwrap_or_default(),
+                        for tool_meta in tool_metas {
+                            tools.push(Tool {
                                 tool_type: "python".to_string(),
-                                command: None,
-                                script: Some(script_path.to_string_lossy().to_string()),
+                                name: Some(tool_meta.name.clone()),
+                                description: Some(tool_meta.description.unwrap_or_default()),
+                                file: Some(file_path.to_string_lossy().to_string()),
                                 function: Some(tool_meta.name),
                                 input_schema: tool_meta.input_schema,
+                                output_schema: None,
+                                command: None,
+                                args: vec![],
+                                env: std::collections::HashMap::new(),
+                                url: None,
+                                headers: None,
+                                transport: None,
                             });
                         }
                     }
                 } else {
                     // Manually defined - use provided values
-                    let resolved_script = raw_tool
-                        .script
+                    let resolved_file = raw_tool
+                        .file
                         .as_ref()
                         .map(|s| resolve_path(s).to_string_lossy().to_string());
 
-                    custom_tools.push(CustomTool {
-                        name: raw_tool.name.unwrap_or_default(),
-                        description: raw_tool.description.unwrap_or_default(),
+                    tools.push(Tool {
                         tool_type: raw_tool.tool_type,
-                        command: raw_tool.command,
-                        script: resolved_script,
+                        name: Some(raw_tool.name.unwrap_or_default()),
+                        description: Some(raw_tool.description.unwrap_or_default()),
+                        file: resolved_file,
                         function: raw_tool.function,
                         input_schema: raw_tool.input_schema.unwrap_or(serde_json::json!({})),
+                        output_schema: raw_tool.output_schema,
+                        command: raw_tool.command,
+                        args: raw_tool.args,
+                        env: raw_tool.env,
+                        url: raw_tool.url,
+                        headers: raw_tool.headers,
+                        transport: None,
                     });
                 }
             }
             "shell" => {
-                // Shell tools require manual definition
-                let resolved_script = raw_tool
-                    .script
-                    .as_ref()
-                    .map(|s| resolve_path(s).to_string_lossy().to_string());
-
-                custom_tools.push(CustomTool {
-                    name: raw_tool.name.ok_or_else(|| {
-                        FieldParseError::InvalidField("Shell tool missing 'name' field".to_string())
-                    })?,
-                    description: raw_tool.description.unwrap_or_default(),
+                tools.push(Tool {
                     tool_type: raw_tool.tool_type,
-                    command: raw_tool.command,
-                    script: resolved_script,
+                    name: Some(raw_tool.name.ok_or_else(|| {
+                        FieldParseError::InvalidField("Shell tool missing 'name' field".to_string())
+                    })?),
+                    description: Some(raw_tool.description.unwrap_or_default()),
+                    file: raw_tool
+                        .file
+                        .as_ref()
+                        .map(|s| resolve_path(s).to_string_lossy().to_string()),
                     function: raw_tool.function,
                     input_schema: raw_tool.input_schema.unwrap_or(serde_json::json!({})),
+                    output_schema: raw_tool.output_schema,
+                    command: raw_tool.command,
+                    args: raw_tool.args,
+                    env: raw_tool.env,
+                    url: raw_tool.url,
+                    headers: raw_tool.headers,
+                    transport: None,
+                });
+            }
+            "mcp" => {
+                // Validate name is non-empty
+                let mcp_name = raw_tool.name.ok_or_else(|| {
+                    FieldParseError::InvalidField("MCP tool missing 'name' field".to_string())
+                })?;
+
+                if mcp_name.trim().is_empty() {
+                    return Err(FieldParseError::InvalidField(
+                        "MCP tool name cannot be empty".to_string(),
+                    ));
+                }
+
+                // Determine transport type
+                let transport_type = raw_tool.transport.as_deref().unwrap_or("stdio");
+
+                let transport = match transport_type {
+                    "stdio" => {
+                        // Stdio transport requires command
+                        let command = raw_tool.command.ok_or_else(|| {
+                            FieldParseError::InvalidField(format!(
+                                "MCP tool '{}' with stdio transport requires 'command' field",
+                                mcp_name
+                            ))
+                        })?;
+
+                        if command.trim().is_empty() {
+                            return Err(FieldParseError::InvalidField(
+                                "MCP tool command cannot be empty".to_string(),
+                            ));
+                        }
+
+                        McpTransport::Stdio {
+                            command,
+                            args: raw_tool.args.clone(),
+                            env: raw_tool.env.clone(),
+                        }
+                    }
+                    "http" | "sse" => {
+                        // HTTP/SSE transport requires url
+                        let url = raw_tool.url.ok_or_else(|| {
+                            FieldParseError::InvalidField(format!(
+                                "MCP tool '{}' with {} transport requires 'url' field",
+                                mcp_name, transport_type
+                            ))
+                        })?;
+
+                        if url.trim().is_empty() {
+                            return Err(FieldParseError::InvalidField(
+                                "MCP tool url cannot be empty".to_string(),
+                            ));
+                        }
+
+                        // Expand environment variables in headers
+                        let mut headers = raw_tool.headers.clone().unwrap_or_default();
+                        for (_, value) in headers.iter_mut() {
+                            if let Ok(expanded) = shellexpand::env(value) {
+                                *value = expanded.to_string();
+                            }
+                        }
+
+                        McpTransport::Sse { url, headers }
+                    }
+                    other => {
+                        return Err(FieldParseError::InvalidField(format!(
+                            "Invalid MCP transport: '{}'. Supported: 'stdio', 'http', 'sse'",
+                            other
+                        )))
+                    }
+                };
+
+                tools.push(Tool {
+                    tool_type: "mcp".to_string(),
+                    name: Some(mcp_name),
+                    description: raw_tool.description,
+                    file: None,
+                    function: None,
+                    input_schema: raw_tool.input_schema.unwrap_or(serde_json::json!({})),
+                    output_schema: raw_tool.output_schema,
+                    command: None,
+                    args: vec![],
+                    env: std::collections::HashMap::new(),
+                    url: None,
+                    headers: None,
+                    transport: Some(transport),
                 });
             }
             _ => {
@@ -279,155 +394,72 @@ fn convert_raw_field(raw: RawField, config_dir: Option<PathBuf>) -> Result<Field
         }
     }
 
-    // Parse code mode config
-    let code_mode = raw.code_mode.map(|raw_code_mode| CodeModeConfig {
-        enabled: raw_code_mode.enabled,
-    });
-
-    // Parse MCP servers
-    let mcp_servers = raw
-        .mcp_server
-        .into_iter()
-        .map(|raw_mcp| {
-            // Validate name is non-empty
-            if raw_mcp.name.trim().is_empty() {
-                return Err(FieldParseError::InvalidField(
-                    "MCP server name cannot be empty".to_string(),
-                ));
+    // Auto-detect packages based on tools
+    let mut auto_packages: Vec<String> = Vec::new();
+    for tool in &tools {
+        match tool.tool_type.as_str() {
+            "python" => {
+                if !auto_packages.contains(&"python3".to_string()) {
+                    auto_packages.push("python3".to_string());
+                }
             }
-
-            // Determine transport type
-            let transport_type = raw_mcp.transport.as_deref().unwrap_or("stdio");
-
-            let transport = match transport_type {
-                "stdio" => {
-                    // Stdio transport requires command
-                    let command = raw_mcp.command.ok_or_else(|| {
-                        FieldParseError::InvalidField(format!(
-                            "MCP server '{}' with stdio transport requires 'command' field",
-                            raw_mcp.name
-                        ))
-                    })?;
-
-                    if command.trim().is_empty() {
-                        return Err(FieldParseError::InvalidField(
-                            "MCP server command cannot be empty".to_string(),
-                        ));
-                    }
-
-                    McpTransport::Stdio {
-                        command,
-                        args: raw_mcp.args,
-                        env: raw_mcp.env,
-                    }
-                }
-                "http" | "sse" => {
-                    // HTTP/SSE transport requires url
-                    let url = raw_mcp.url.ok_or_else(|| {
-                        FieldParseError::InvalidField(format!(
-                            "MCP server '{}' with {} transport requires 'url' field",
-                            raw_mcp.name, transport_type
-                        ))
-                    })?;
-
-                    if url.trim().is_empty() {
-                        return Err(FieldParseError::InvalidField(
-                            "MCP server url cannot be empty".to_string(),
-                        ));
-                    }
-
-                    // Expand environment variables in headers
-                    let mut headers = raw_mcp.headers.unwrap_or_default();
-                    for (_, value) in headers.iter_mut() {
-                        if let Ok(expanded) = shellexpand::env(value) {
-                            *value = expanded.to_string();
+            "mcp" => {
+                // Check MCP command for package hints
+                if let Some(transport) = &tool.transport {
+                    match transport {
+                        McpTransport::Stdio { command, .. } => {
+                            if command == "npx" || command.ends_with("/npx") {
+                                if !auto_packages.contains(&"nodejs".to_string()) {
+                                    auto_packages.push("nodejs".to_string());
+                                }
+                                if !auto_packages.contains(&"npm".to_string()) {
+                                    auto_packages.push("npm".to_string());
+                                }
+                            } else if command == "uvx" || command.ends_with("/uvx") {
+                                if !auto_packages.contains(&"python3".to_string()) {
+                                    auto_packages.push("python3".to_string());
+                                }
+                                if !auto_packages.contains(&"uv".to_string()) {
+                                    auto_packages.push("uv".to_string());
+                                }
+                            }
                         }
-                    }
-
-                    McpTransport::Sse { url, headers }
-                }
-                other => {
-                    return Err(FieldParseError::InvalidField(format!(
-                        "Invalid MCP transport: '{}'. Supported: 'stdio', 'http', 'sse'",
-                        other
-                    )))
-                }
-            };
-
-            Ok(McpServer {
-                name: raw_mcp.name,
-                transport,
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    // Auto-detect required container packages from field configuration.
-    // Users can always override or extend via the [container] section.
-    let mut auto_packages: Vec<String> = vec![];
-
-    // Python tools need python3 in the container
-    let has_python_tool = custom_tools.iter().any(|t| t.tool_type == "python");
-    if has_python_tool {
-        auto_packages.push("python3".to_string());
-    }
-
-    // MCP servers: npx needs Node.js + npm, uvx needs python3 + uv
-    for server in &mcp_servers {
-        if let McpTransport::Stdio { command, .. } = &server.transport {
-            match command.as_str() {
-                "npx" => {
-                    for pkg in ["nodejs", "npm"] {
-                        if !auto_packages.iter().any(|p| p == pkg) {
-                            auto_packages.push(pkg.to_string());
-                        }
+                        McpTransport::Sse { .. } => {}
                     }
                 }
-                "uvx" => {
-                    for pkg in ["python3", "uv"] {
-                        if !auto_packages.iter().any(|p| p == pkg) {
-                            auto_packages.push(pkg.to_string());
-                        }
-                    }
-                }
-                _ => {}
             }
+            _ => {}
         }
     }
 
-    // Parse container config, merging auto-detected packages with explicit ones
-    let container = {
-        let mut cfg = raw
-            .container
-            .map(|raw_container| ContainerConfig {
-                packages: raw_container.packages,
-                dockerfile: raw_container.dockerfile,
-                image: raw_container.image,
-            })
-            .unwrap_or_default();
-        // Add auto-detected packages only if not already explicitly listed
-        for pkg in auto_packages {
-            if !cfg.packages.contains(&pkg) {
-                cfg.packages.push(pkg);
-            }
+    // Merge auto-packages into environment packages (environment packages take precedence)
+    let mut final_packages = environment.packages.clone();
+    for pkg in auto_packages {
+        if !final_packages.contains(&pkg) {
+            final_packages.push(pkg);
         }
-        cfg
+    }
+
+    let environment = Environment {
+        root: environment.root,
+        packages: final_packages,
+        dockerfile: environment.dockerfile,
+        image: environment.image,
     };
 
     Ok(Field {
         name: raw.name,
         description: raw.description,
         model,
+        prompt: Prompt {
+            goal: raw.prompt.goal,
+            system: raw.prompt.system,
+            re_observation: raw.prompt.re_observation,
+        },
         environment,
         boundary,
-        context,
+        tools,
         verifiers,
-        re_observation: raw.re_observation,
-        environment_context: raw.environment_context,
-        goal: raw.goal,
-        custom_tools,
-        code_mode,
-        mcp_servers,
-        container,
         output_schema: raw.output_schema,
         config_dir,
     })
@@ -441,15 +473,17 @@ mod tests {
     fn test_parse_minimal_field() {
         let toml = r#"
             name = "test-field"
-            goal = "Do something"
 
             [model]
             name = "claude-sonnet-4-5"
+
+            [prompt]
+            goal = "Do something"
         "#;
 
         let field = parse_field_from_str(toml).unwrap();
         assert_eq!(field.name, "test-field");
-        assert_eq!(field.goal, "Do something");
+        assert_eq!(field.prompt.goal, "Do something");
         assert_eq!(field.model.name, "claude-sonnet-4-5");
     }
 
@@ -457,45 +491,51 @@ mod tests {
     fn test_parse_cost_string() {
         let toml = r#"
             name = "test-field"
-            goal = "Do something"
 
             [model]
             name = "claude-sonnet-4-5"
 
-            [context]
+            [prompt]
+            goal = "Do something"
+
+            [boundary]
             max_cost = "$2.50"
         "#;
 
         let field = parse_field_from_str(toml).unwrap();
-        assert_eq!(field.context.max_cost.unwrap().to_dollars(), 2.5);
+        assert_eq!(field.boundary.max_cost.unwrap().to_dollars(), 2.5);
     }
 
     #[test]
     fn test_parse_cost_number() {
         let toml = r#"
             name = "test-field"
-            goal = "Do something"
 
             [model]
             name = "claude-sonnet-4-5"
 
-            [context]
+            [prompt]
+            goal = "Do something"
+
+            [boundary]
             max_cost = 2.5
         "#;
 
         let field = parse_field_from_str(toml).unwrap();
-        assert_eq!(field.context.max_cost.unwrap().to_dollars(), 2.5);
+        assert_eq!(field.boundary.max_cost.unwrap().to_dollars(), 2.5);
     }
 
     #[test]
     fn test_reject_unknown_field() {
         let toml = r#"
             name = "test-field"
-            goal = "Do something"
             unknown_field = "bad"
 
             [model]
             name = "claude-sonnet-4-5"
+
+            [prompt]
+            goal = "Do something"
         "#;
 
         let result = parse_field_from_str(toml);
@@ -506,10 +546,12 @@ mod tests {
     fn test_validate_glob_patterns() {
         let toml = r#"
             name = "test-field"
-            goal = "Do something"
 
             [model]
             name = "claude-sonnet-4-5"
+
+            [prompt]
+            goal = "Do something"
 
             [boundary]
             allow_write = ["*.txt", "src/**/*.rs"]
@@ -545,17 +587,16 @@ def add(x: int, y: int = 0) -> int:
         let toml = format!(
             r#"
             name = "test-field"
-            goal = "Test auto-discovery"
 
             [model]
             name = "claude-sonnet-4-5"
 
-            [environment]
-            root = "/tmp/test"
+            [prompt]
+            goal = "Test auto-discovery"
 
             [[tool]]
             type = "python"
-            script = "{}"
+            file = "{}"
         "#,
             python_path
         );
@@ -563,63 +604,67 @@ def add(x: int, y: int = 0) -> int:
         let field = parse_field_from_str(&toml).unwrap();
 
         // Should discover both functions
-        assert_eq!(field.custom_tools.len(), 2);
+        assert_eq!(field.tools.len(), 2);
 
         // Check first tool (greet)
-        assert_eq!(field.custom_tools[0].name, "greet");
-        assert_eq!(field.custom_tools[0].description, "Greet someone by name.");
-        assert_eq!(field.custom_tools[0].tool_type, "python");
+        assert_eq!(field.tools[0].name.as_deref(), Some("greet"));
         assert_eq!(
-            field.custom_tools[0].input_schema["properties"]["name"]["type"],
+            field.tools[0].description.as_deref(),
+            Some("Greet someone by name.")
+        );
+        assert_eq!(field.tools[0].tool_type, "python");
+        assert_eq!(
+            field.tools[0].input_schema["properties"]["name"]["type"],
             "string"
         );
         assert_eq!(
-            field.custom_tools[0].input_schema["required"],
+            field.tools[0].input_schema["required"],
             serde_json::json!(["name"])
         );
 
         // Check second tool (add)
-        assert_eq!(field.custom_tools[1].name, "add");
-        assert_eq!(field.custom_tools[1].description, "Add two numbers.");
+        assert_eq!(field.tools[1].name.as_deref(), Some("add"));
         assert_eq!(
-            field.custom_tools[1].input_schema["properties"]["x"]["type"],
+            field.tools[1].description.as_deref(),
+            Some("Add two numbers.")
+        );
+        assert_eq!(
+            field.tools[1].input_schema["properties"]["x"]["type"],
             "integer"
         );
         assert_eq!(
-            field.custom_tools[1].input_schema["properties"]["y"]["type"],
+            field.tools[1].input_schema["properties"]["y"]["type"],
             "integer"
         );
         // Only x is required, y has default
         assert_eq!(
-            field.custom_tools[1].input_schema["required"],
+            field.tools[1].input_schema["required"],
             serde_json::json!(["x"])
         );
     }
 
     #[test]
-    fn test_parse_environment_context() {
+    fn test_parse_prompt_system() {
         let toml = r#"
             name = "test-field"
-            goal = "Do something"
-
-            environment_context = """
-Available Tools:
-  - Python 3.11+
-  - pytest for testing
-"""
 
             [model]
             name = "claude-sonnet-4-5"
 
-            [environment]
-            root = "/tmp/test"
+            [prompt]
+            goal = "Do something"
+            system = """
+Available Tools:
+  - Python 3.11+
+  - pytest for testing
+"""
         "#;
 
         let field = parse_field_from_str(toml).unwrap();
-        assert!(field.environment_context.is_some());
-        let context = field.environment_context.unwrap();
-        assert!(context.contains("Python 3.11+"));
-        assert!(context.contains("pytest"));
+        assert!(field.prompt.system.is_some());
+        let system = field.prompt.system.unwrap();
+        assert!(system.contains("Python 3.11+"));
+        assert!(system.contains("pytest"));
     }
 
     #[test]
@@ -632,10 +677,15 @@ Available Tools:
 
         let toml = r#"
 name = "test"
-goal = "test"
 
 [model]
 name = "test"
+
+[prompt]
+goal = "test"
+
+[environment]
+root = "./workspace"
         "#;
 
         std::fs::write(&field_path, toml).unwrap();
@@ -643,9 +693,11 @@ name = "test"
         let field = parse_field_from_file(&field_path).unwrap();
 
         // Root should be resolved to temp_dir/workspace
-        let Environment::Local { root } = &field.environment;
         let expected = temp_dir.path().join("workspace");
-        assert_eq!(root, &expected.to_string_lossy().to_string());
+        assert_eq!(
+            field.environment.root,
+            expected.to_string_lossy().to_string()
+        );
 
         // config_dir should be set
         assert_eq!(field.config_dir, Some(temp_dir.path().to_path_buf()));
@@ -655,26 +707,26 @@ name = "test"
     fn test_absolute_path_unchanged() {
         let toml = r#"
 name = "test"
-goal = "test"
 
 [model]
 name = "test"
+
+[prompt]
+goal = "test"
 
 [environment]
 root = "/absolute/path/workspace"
         "#;
 
         let field = parse_field_from_str(toml).unwrap();
-
-        let Environment::Local { root } = &field.environment;
-        assert_eq!(root, "/absolute/path/workspace");
+        assert_eq!(field.environment.root, "/absolute/path/workspace");
 
         // config_dir should be None for string parsing
         assert_eq!(field.config_dir, None);
     }
 
     #[test]
-    fn test_python_script_path_resolution() {
+    fn test_python_file_path_resolution() {
         use std::io::Write;
         use tempfile::TempDir;
 
@@ -683,28 +735,32 @@ root = "/absolute/path/workspace"
         std::fs::create_dir(&tools_dir).unwrap();
 
         // Create a simple Python tool
-        let script_path = tools_dir.join("calc.py");
-        let mut script_file = std::fs::File::create(&script_path).unwrap();
-        script_file
-            .write_all(
-                b"def main(x: int) -> int:
+        let file_path = tools_dir.join("calc.py");
+        let mut file = std::fs::File::create(&file_path).unwrap();
+        file.write_all(
+            b"def main(x: int) -> int:
     \"\"\"Test function\"\"\"
     return x * 2
 ",
-            )
-            .unwrap();
+        )
+        .unwrap();
 
         let field_path = temp_dir.path().join("field.toml");
         let toml = r#"
 name = "test"
-goal = "test"
 
 [model]
 name = "test"
 
+[prompt]
+goal = "test"
+
+[environment]
+root = "./workspace"
+
 [[tool]]
 type = "python"
-script = "./tools/calc.py"
+file = "./tools/calc.py"
 function = "main"
         "#;
 
@@ -713,13 +769,13 @@ function = "main"
         let field = parse_field_from_file(&field_path).unwrap();
 
         // Should have auto-discovered the Python tool
-        assert_eq!(field.custom_tools.len(), 1);
-        assert_eq!(field.custom_tools[0].name, "main");
+        assert_eq!(field.tools.len(), 1);
+        assert_eq!(field.tools[0].name.as_deref(), Some("main"));
 
-        // Script path should be resolved
-        let script = field.custom_tools[0].script.as_ref().unwrap();
+        // File path should be resolved
+        let file = field.tools[0].file.as_ref().unwrap();
         let expected_path = temp_dir.path().join("tools").join("calc.py");
-        assert_eq!(script, &expected_path.to_string_lossy().to_string());
+        assert_eq!(file, &expected_path.to_string_lossy().to_string());
     }
 
     #[test]
@@ -727,16 +783,20 @@ function = "main"
         // When parsing from string (no file path), relative paths should be relative to CWD
         let toml = r#"
 name = "test"
-goal = "test"
 
 [model]
 name = "test"
+
+[prompt]
+goal = "test"
+
+[environment]
+root = "./workspace"
         "#;
 
         let field = parse_field_from_str(toml).unwrap();
 
         // Should use relative path as-is (will be resolved from CWD at runtime)
-        let Environment::Local { root } = &field.environment;
-        assert_eq!(root, "./workspace");
+        assert_eq!(field.environment.root, "./workspace");
     }
 }

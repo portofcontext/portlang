@@ -21,12 +21,12 @@ pub fn check_command(field_path: PathBuf) -> Result<()> {
         println!("  Write permissions: {:?}", field.boundary.allow_write);
     }
 
-    // Show context limits
-    if let Some(max_tokens) = field.context.max_tokens {
+    // Show boundary limits
+    if let Some(max_tokens) = field.boundary.max_tokens {
         println!("  Token budget: {}", max_tokens);
     }
 
-    if let Some(max_cost) = &field.context.max_cost {
+    if let Some(max_cost) = &field.boundary.max_cost {
         println!("  Cost budget: {}", max_cost);
     }
 

@@ -1,6 +1,5 @@
 pub mod action;
 pub mod boundary;
-pub mod context;
 pub mod cost;
 pub mod environment;
 pub mod field;
@@ -12,7 +11,6 @@ pub mod verifier;
 // Re-export all types
 pub use action::*;
 pub use boundary::*;
-pub use context::*;
 pub use cost::*;
 pub use environment::*;
 pub use field::*;

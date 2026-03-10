@@ -2,18 +2,12 @@ use serde::{Deserialize, Serialize};
 
 /// Environment configuration for field execution
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum Environment {
-    /// Local filesystem environment with a root directory
-    Local { root: String },
-}
+pub struct Environment {
+    /// Root directory for the workspace
+    #[serde(default = "default_workspace_root")]
+    pub root: String,
 
-/// Container configuration for sandbox customization
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[derive(Default)]
-pub struct ContainerConfig {
-    /// APT packages to install in the container (e.g., ["nodejs", "npm"])
+    /// APT packages to install in the container
     #[serde(default)]
     pub packages: Vec<String>,
 
@@ -24,6 +18,21 @@ pub struct ContainerConfig {
     /// Pre-built Docker image to use instead of default
     #[serde(default)]
     pub image: Option<String>,
+}
+
+fn default_workspace_root() -> String {
+    "./workspace".to_string()
+}
+
+impl Default for Environment {
+    fn default() -> Self {
+        Self {
+            root: default_workspace_root(),
+            packages: vec![],
+            dockerfile: None,
+            image: None,
+        }
+    }
 }
 
 /// Snapshot configuration (not used in Phase 1, but defined for future)

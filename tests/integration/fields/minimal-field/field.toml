@@ -1,14 +1,16 @@
 name = "minimal-field"
 description = "Minimal test field that reads a file and stops"
-goal = "Read the file 'input.txt' and output its contents, then stop."
 
 [model]
 name = "claude-sonnet-4-5"
 temperature = 1.0
 
+[prompt]
+goal = "Read the file 'input.txt' and output its contents, then stop."
+
 [environment]
 root = "."
 
-[context]
+[boundary]
 max_tokens = 10000
 max_cost = "$1.00"

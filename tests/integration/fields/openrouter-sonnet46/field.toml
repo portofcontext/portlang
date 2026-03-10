@@ -1,17 +1,17 @@
 name = "openrouter-sonnet46"
 description = "Test field using Sonnet 4.6 via OpenRouter"
-goal = "Read the file 'test.txt', then create a simple Rust function that reverses a string and write it to 'reverse.rs'. Finally, stop."
 
 [model]
 name = "anthropic/claude-sonnet-4.6"
 temperature = 1.0
+
+[prompt]
+goal = "Read the file 'test.txt', then create a simple Rust function that reverses a string and write it to 'reverse.rs'. Finally, stop."
 
 [environment]
 root = "."
 
 [boundary]
 allow_write = ["*.rs", "*.txt"]
-
-[context]
 max_tokens = 50000
 max_cost = "$2.00"

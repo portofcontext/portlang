@@ -1,17 +1,18 @@
 name = "custom-python-tool"
 description = "Define custom tools as Python functions — full language support with PEP 723 inline dependencies"
 
-goal = "Calculate the result of 144 * 259 using the calculator tool. Write the result to result.txt, then stop."
-
 [model]
 name = "anthropic/claude-sonnet-4.6"
 temperature = 0.0
-max_tokens = 1000
+
+[prompt]
+goal = "Calculate the result of 144 * 259 using the calculator tool. Write the result to result.txt, then stop."
+
+[environment]
+root = "./workspace"
 
 [boundary]
 allow_write = ["*.txt"]
-
-[context]
 max_tokens = 20000
 max_cost = "$0.10"
 max_steps = 5
@@ -21,6 +22,6 @@ max_steps = 5
 # PEP 723 inline script dependencies are supported (via uv).
 [[tool]]
 type = "python"
-script = "./tools/calculator.py"
+file = "./tools/calculator.py"
 function = "execute"
 # name, description, and input_schema are auto-extracted from the Python function

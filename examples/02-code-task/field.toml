@@ -1,6 +1,11 @@
 name = "code-task"
 description = "A real coding task with a verifier — agent writes code and tests, verifier confirms they pass"
 
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 1.0
+
+[prompt]
 goal = """
 Create a Python program that analyzes text files and reports statistics.
 
@@ -14,25 +19,20 @@ Your program should:
 Create exactly three files: analyzer.py, test_analyzer.py, requirements.txt.
 Once all three exist, stop — the verifier will run the tests automatically.
 """
-
 re_observation = [
     "echo '=== workspace ===' && ls -1 *.py *.txt 2>/dev/null | cat"
 ]
 
-[model]
-name = "anthropic/claude-sonnet-4.6"
-temperature = 1.0
-max_tokens = 4000
+[environment]
+root = "./workspace"
 
 [boundary]
 allow_write = ["*.py", "*.txt", "requirements.txt"]
-
-[context]
 max_tokens = 80000
 max_cost = "$1.00"
 max_steps = 30
 
-[[verifiers]]
+[[verifier]]
 name = "pytest"
 command = "python -m pytest test_analyzer.py -v 2>&1"
 trigger = "on_stop"

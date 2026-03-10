@@ -4,14 +4,10 @@ use crate::loop_detection::LoopDetector;
 use crate::mcp::{McpServerManager, McpToolHandler};
 use crate::provider::{ContentBlock, ModelProvider, Tool};
 use crate::sandbox::{create_sandbox, BoundaryAnalyzer, ContextTracer};
-#[cfg(feature = "code-mode")]
-use crate::tools::handler::ToolHandler;
 use crate::tools::{
     GlobHandler, PythonToolHandler, ReadHandler, ShellCommandHandler, ToolRegistry, WriteHandler,
 };
 
-#[cfg(feature = "code-mode")]
-use crate::tools::CodeModeHandler;
 use crate::verifier_runner::run_verifiers;
 use portlang_core::*;
 use std::sync::Arc;
@@ -39,144 +35,69 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
     let registry = Arc::new(registry);
 
     // Create sandbox FIRST so we can get container ID for MCP and Python tools
-    let sandbox = create_sandbox(
-        &field.environment,
-        &field.boundary,
-        registry.clone(),
-        &field.container,
-    )
-    .await?;
+    let sandbox = create_sandbox(&field.environment, &field.boundary, registry.clone()).await?;
     let container_id = sandbox.container_id().map(|s| s.to_string());
 
-    // Create Code Mode handler if enabled
-    #[cfg(feature = "code-mode")]
-    let mut code_mode_handler = if let Some(ref code_mode_config) = field.code_mode {
-        if code_mode_config.enabled {
-            Some(CodeModeHandler::new())
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    // Register custom tools from field config
-    for custom_tool in &field.custom_tools {
-        match custom_tool.tool_type.as_str() {
+    // Register custom tools from field config (python and shell types)
+    for tool in field
+        .tools
+        .iter()
+        .filter(|t| t.tool_type == "python" || t.tool_type == "shell")
+    {
+        match tool.tool_type.as_str() {
             "shell" => {
+                let name = tool.name.clone().unwrap_or_default();
+                let description = tool.description.clone().unwrap_or_default();
                 let handler = ShellCommandHandler::new(
-                    custom_tool.name.clone(),
-                    custom_tool.description.clone(),
-                    custom_tool.command.clone().unwrap_or_default(),
-                    custom_tool.input_schema.clone(),
+                    name.clone(),
+                    description,
+                    tool.command.clone().unwrap_or_default(),
+                    tool.input_schema.clone(),
                 );
                 registry.register(Arc::new(handler));
-                tracing::info!("Registered custom shell tool: {}", custom_tool.name);
+                tracing::info!("Registered custom shell tool: {}", name);
             }
             "python" => {
                 use std::path::PathBuf;
-
-                let script_path = PathBuf::from(custom_tool.script.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("Python tool '{}' missing 'script' field", custom_tool.name)
+                let name = tool.name.clone().unwrap_or_default();
+                let description = tool.description.clone().unwrap_or_default();
+                let file_path = PathBuf::from(tool.file.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("Python tool '{}' missing 'file' field", name)
                 })?);
                 let handler = PythonToolHandler::new(
-                    custom_tool.name.clone(),
-                    custom_tool.description.clone(),
-                    script_path.clone(),
-                    custom_tool.function.clone(),
-                    custom_tool.input_schema.clone(),
+                    name.clone(),
+                    description,
+                    file_path,
+                    tool.function.clone(),
+                    tool.input_schema.clone(),
                 );
                 registry.register(Arc::new(handler));
-                tracing::info!("Registered custom Python tool: {}", custom_tool.name);
-
-                // Also register with Code Mode if enabled
-                #[cfg(feature = "code-mode")]
-                if let Some(ref mut code_mode) = code_mode_handler {
-                    let tool_name = custom_tool.name.clone();
-                    let tool_description = custom_tool.description.clone();
-                    let tool_schema = custom_tool.input_schema.clone();
-                    let script = script_path.clone();
-                    let function = custom_tool.function.clone();
-                    let env_root = match &field.environment {
-                        Environment::Local { root } => std::path::PathBuf::from(root),
-                    };
-
-                    // Create callback that executes the Python tool
-                    let callback: Arc<
-                        dyn Fn(
-                                Option<serde_json::Value>,
-                            ) -> std::pin::Pin<
-                                Box<
-                                    dyn std::future::Future<
-                                            Output = std::result::Result<serde_json::Value, String>,
-                                        > + Send,
-                                >,
-                            > + Send
-                            + Sync,
-                    > = Arc::new(move |args| {
-                        let script = script.clone();
-                        let function = function.clone();
-                        let root = env_root.clone();
-                        let name = tool_name.clone();
-                        let description = tool_description.clone();
-                        let schema = tool_schema.clone();
-                        let args = args.unwrap_or(serde_json::Value::Null);
-
-                        Box::pin(async move {
-                            // Execute the Python tool
-                            let handler =
-                                PythonToolHandler::new(name, description, script, function, schema);
-
-                            let result = handler
-                                .execute(&root, args)
-                                .await
-                                .map_err(|e| e.to_string())?;
-
-                            // Parse the result as JSON
-                            serde_json::from_str(&result).map_err(|e| e.to_string())
-                        })
-                    });
-
-                    code_mode
-                        .register_tool(
-                            "Tools".to_string(),
-                            custom_tool.name.clone(),
-                            Some(custom_tool.description.clone()),
-                            custom_tool.input_schema.clone(),
-                            callback,
-                        )
-                        .map_err(|e| {
-                            anyhow::anyhow!("Failed to register Python tool in Code Mode: {}", e)
-                        })?;
-
-                    tracing::info!(
-                        "Registered Python tool in Code Mode: Tools.{}",
-                        custom_tool.name
-                    );
-                }
+                tracing::info!("Registered custom Python tool: {}", name);
             }
-            other => {
-                tracing::warn!(
-                    "Unknown tool type '{}' for tool '{}', skipping",
-                    other,
-                    custom_tool.name
-                );
-            }
+            _ => {}
         }
     }
+
+    // Build McpServer list from mcp-type tools
+    let mcp_servers: Vec<McpServer> = field
+        .tools
+        .iter()
+        .filter(|t| t.tool_type == "mcp")
+        .filter_map(|t| {
+            let name = t.name.clone()?;
+            let transport = t.transport.clone()?;
+            Some(McpServer { name, transport })
+        })
+        .collect();
 
     // Initialize MCP servers and register their tools
     let mut mcp_manager = McpServerManager::new();
 
-    if !field.mcp_servers.is_empty() {
-        tracing::info!("Initializing {} MCP server(s)", field.mcp_servers.len());
+    if !mcp_servers.is_empty() {
+        tracing::info!("Initializing {} MCP server(s)", mcp_servers.len());
 
         mcp_manager
-            .initialize_servers(
-                &field.mcp_servers,
-                field.config_dir.clone(),
-                container_id.clone(),
-            )
+            .initialize_servers(&mcp_servers, field.config_dir.clone(), container_id.clone())
             .await?;
 
         // Discover and register tools from all MCP servers
@@ -196,76 +117,17 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                 tool_def.name,
                 server_name
             );
-
-            // Also register with Code Mode if enabled
-            #[cfg(feature = "code-mode")]
-            if let Some(ref mut code_mode) = code_mode_handler {
-                let tool_name = tool_def.name.clone();
-                let tool_description_opt = tool_def.description.clone();
-                let tool_schema = tool_def.input_schema.clone();
-                let client_for_callback = client.clone();
-
-                // Create callback that executes the MCP tool
-                let callback: Arc<
-                    dyn Fn(
-                            Option<serde_json::Value>,
-                        ) -> std::pin::Pin<
-                            Box<
-                                dyn std::future::Future<
-                                        Output = std::result::Result<serde_json::Value, String>,
-                                    > + Send,
-                            >,
-                        > + Send
-                        + Sync,
-                > = Arc::new(move |args| {
-                    let client = client_for_callback.clone();
-                    let name = tool_name.clone();
-                    let args = args.unwrap_or(serde_json::Value::Null);
-
-                    Box::pin(async move {
-                        // Call the MCP tool
-                        let client_lock = client.read().await;
-                        let result = client_lock
-                            .call_tool(&name, args)
-                            .await
-                            .map_err(|e| e.to_string())?;
-
-                        Ok(result)
-                    })
-                });
-
-                code_mode
-                    .register_tool(
-                        "MCP".to_string(),
-                        tool_def.name.clone(),
-                        tool_description_opt.clone(),
-                        tool_schema.clone(),
-                        callback,
-                    )
-                    .map_err(|e| {
-                        anyhow::anyhow!("Failed to register MCP tool in Code Mode: {}", e)
-                    })?;
-
-                tracing::info!("Registered MCP tool in Code Mode: MCP.{}", tool_def.name);
-            }
         }
-    }
-
-    // Register Code Mode handler if enabled
-    #[cfg(feature = "code-mode")]
-    if let Some(code_mode) = code_mode_handler {
-        registry.register(Arc::new(code_mode));
-        tracing::info!("Code Mode enabled with registered custom tools");
     }
 
     // Discover environment context
     tracing::debug!("Discovering environment context...");
     let env_context =
-        EnvironmentContext::discover(sandbox.as_ref(), field.environment_context.clone()).await;
+        EnvironmentContext::discover(sandbox.as_ref(), field.prompt.system.clone()).await;
     tracing::debug!("Environment context generated");
 
     // Create context window
-    let mut context = ContextWindow::new(&field.goal);
+    let mut context = ContextWindow::new(&field.prompt.goal);
 
     // Create loop detector
     let mut loop_detector = LoopDetector::new();
@@ -302,12 +164,10 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
     // Capture context for trajectory
     let system_prompt_text = build_system_prompt(field, &env_context);
     let tools_json = serde_json::to_string_pretty(&tools).unwrap_or_else(|_| "[]".to_string());
-    let env_type = match &field.environment {
-        Environment::Local { .. } => "local".to_string(),
-    };
+    let env_type = "local".to_string();
 
     trajectory = trajectory.with_context(
-        field.goal.clone(),
+        field.prompt.goal.clone(),
         provider.model_name().to_string(),
         system_prompt_text.clone(),
         tools_json.clone(),
@@ -326,7 +186,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
         tracing::info!("Starting step {}", step_number);
 
         // Step 1: Execute re-observations
-        for re_obs_cmd in &field.re_observation {
+        for re_obs_cmd in &field.prompt.re_observation {
             if let Ok(output) = sandbox.run_command(re_obs_cmd).await {
                 context.append_observation(format!(
                     "Re-observation ({}):\n{}\n{}",
@@ -534,7 +394,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                                     }
                                 }
 
-                                if !field.mcp_servers.is_empty() {
+                                if !mcp_servers.is_empty() {
                                     let _ = mcp_manager.shutdown_all().await;
                                 }
                                 return Ok(trajectory);
@@ -638,7 +498,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
         );
 
         // Step 6: Check token budget
-        if let Some(max_tokens) = field.context.max_tokens {
+        if let Some(max_tokens) = field.boundary.max_tokens {
             if context.total_tokens() >= max_tokens {
                 trajectory.finish(RunOutcome::BudgetExhausted {
                     reason: format!(
@@ -648,7 +508,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                     ),
                 });
                 // Cleanup MCP servers
-                if !field.mcp_servers.is_empty() {
+                if !mcp_servers.is_empty() {
                     let _ = mcp_manager.shutdown_all().await;
                 }
                 return Ok(trajectory);
@@ -656,7 +516,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
         }
 
         // Check cost budget
-        if let Some(max_cost) = &field.context.max_cost {
+        if let Some(max_cost) = &field.boundary.max_cost {
             if context.total_cost() >= *max_cost {
                 trajectory.finish(RunOutcome::CostLimitExceeded {
                     reason: format!(
@@ -666,7 +526,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                     ),
                 });
                 // Cleanup MCP servers
-                if !field.mcp_servers.is_empty() {
+                if !mcp_servers.is_empty() {
                     let _ = mcp_manager.shutdown_all().await;
                 }
                 return Ok(trajectory);
@@ -674,13 +534,13 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
         }
 
         // Check step limit
-        if let Some(max_steps) = field.context.max_steps {
+        if let Some(max_steps) = field.boundary.max_steps {
             if step_number as u64 >= max_steps {
                 trajectory.finish(RunOutcome::BudgetExhausted {
                     reason: format!("Step limit reached: {} >= {}", step_number, max_steps),
                 });
                 // Cleanup MCP servers
-                if !field.mcp_servers.is_empty() {
+                if !mcp_servers.is_empty() {
                     let _ = mcp_manager.shutdown_all().await;
                 }
                 return Ok(trajectory);
@@ -709,7 +569,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                             trajectory.finish(RunOutcome::Error {
                                 message: format!("Output validation failed: {}", e),
                             });
-                            if !field.mcp_servers.is_empty() {
+                            if !mcp_servers.is_empty() {
                                 let _ = mcp_manager.shutdown_all().await;
                             }
                             return Ok(trajectory);
@@ -733,7 +593,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                         trajectory.finish(RunOutcome::Error {
                             message: format!("Failed to extract structured output: {}", e),
                         });
-                        if !field.mcp_servers.is_empty() {
+                        if !mcp_servers.is_empty() {
                             let _ = mcp_manager.shutdown_all().await;
                         }
                         return Ok(trajectory);
@@ -749,7 +609,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                     message: final_message,
                 });
                 // Cleanup MCP servers
-                if !field.mcp_servers.is_empty() {
+                if !mcp_servers.is_empty() {
                     let _ = mcp_manager.shutdown_all().await;
                 }
                 return Ok(trajectory);
@@ -761,7 +621,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                         message: failed.stderr.clone(),
                     });
                     // Cleanup MCP servers
-                    if !field.mcp_servers.is_empty() {
+                    if !mcp_servers.is_empty() {
                         let _ = mcp_manager.shutdown_all().await;
                     }
                     return Ok(trajectory);
@@ -777,114 +637,17 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
     }
 }
 
-#[cfg(feature = "code-mode")]
-/// Convert snake_case to camelCase for TypeScript function names
-fn to_camel_case(s: &str) -> String {
-    let mut result = String::new();
-    let mut capitalize_next = false;
-
-    for c in s.chars() {
-        if c == '_' {
-            capitalize_next = true;
-        } else if capitalize_next {
-            result.push(c.to_ascii_uppercase());
-            capitalize_next = false;
-        } else {
-            result.push(c);
-        }
-    }
-
-    result
-}
-
 /// Build system prompt with environment context
 fn build_system_prompt(field: &Field, env_context: &EnvironmentContext) -> String {
     let mut parts = vec![];
 
     // User's custom system prompt
-    if let Some(user_prompt) = &field.context.system_prompt {
+    if let Some(user_prompt) = &field.prompt.system {
         parts.push(user_prompt.clone());
     }
 
     // Auto-discovered environment
     parts.push(env_context.format_for_prompt());
-
-    // Code Mode API documentation
-    #[cfg(feature = "code-mode")]
-    if let Some(ref code_mode_config) = field.code_mode {
-        if code_mode_config.enabled {
-            let mut code_mode_doc = String::from("\n# Code Mode\n\n");
-            code_mode_doc.push_str("You have access to a `code_mode` tool that executes TypeScript code in a sandboxed Deno runtime.\n\n");
-            code_mode_doc.push_str("**Code Structure:**\n");
-            code_mode_doc.push_str("```typescript\n");
-            code_mode_doc.push_str("async function run() {\n");
-            code_mode_doc.push_str("    // Your code here\n");
-            code_mode_doc.push_str("    return result;\n");
-            code_mode_doc.push_str("}\n");
-            code_mode_doc.push_str("```\n\n");
-
-            // Document available custom tools
-            if !field.custom_tools.is_empty() {
-                code_mode_doc
-                    .push_str("**Available Tools API (callable from within code_mode):**\n\n");
-                code_mode_doc.push_str("You can call these tools from your TypeScript code:\n\n");
-                for tool in &field.custom_tools {
-                    // Convert snake_case to camelCase for TypeScript
-                    let camel_name = to_camel_case(&tool.name);
-                    code_mode_doc.push_str(&format!(
-                        "- `Tools.{}(params)` - {}\n",
-                        camel_name, tool.description
-                    ));
-                    if let Some(props) = tool
-                        .input_schema
-                        .get("properties")
-                        .and_then(|p| p.as_object())
-                    {
-                        code_mode_doc.push_str("  Parameters: { ");
-                        let params: Vec<String> = props.keys().map(|k| k.to_string()).collect();
-                        code_mode_doc.push_str(&params.join(", "));
-                        code_mode_doc.push_str(" }\n");
-                    }
-                }
-                code_mode_doc.push_str("\n");
-            }
-
-            // Document available MCP tools
-            if !field.mcp_servers.is_empty() {
-                code_mode_doc
-                    .push_str("**Available MCP Tools API (callable from within code_mode):**\n\n");
-                code_mode_doc.push_str(
-                    "Tools from connected MCP servers are available under the `Mcp` namespace (note: capitalized):\n",
-                );
-                code_mode_doc.push_str(
-                    "- Use `Mcp.toolName(params)` to call MCP tools (note: camelCase function names)\n",
-                );
-                code_mode_doc.push_str("- All MCP tools are async and must be awaited\n");
-                code_mode_doc
-                    .push_str("- Example: `await Mcp.readFile({ path: \"/file.txt\" })`\n");
-                code_mode_doc.push_str(&format!(
-                    "- Connected servers: {}\n\n",
-                    field
-                        .mcp_servers
-                        .iter()
-                        .map(|s| s.name.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ));
-            }
-
-            code_mode_doc.push_str("**Benefits:**\n");
-            code_mode_doc
-                .push_str("- Dramatically reduces token usage for data-heavy operations\n");
-            code_mode_doc
-                .push_str("- Chain multiple tool calls without intermediate model invocations\n");
-            code_mode_doc.push_str("- Perform complex data transformations in a single step\n");
-            code_mode_doc
-                .push_str("- Use standard TypeScript/JavaScript for logic and iteration\n");
-
-            parts.push(code_mode_doc);
-        }
-    }
 
     // Add structured output requirements if schema is defined
     if let Some(ref schema) = field.output_schema {

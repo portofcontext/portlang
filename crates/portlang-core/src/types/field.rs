@@ -1,103 +1,79 @@
-use super::{
-    boundary::Boundary,
-    context::ContextPolicy,
-    environment::{ContainerConfig, Environment},
-    model::ModelSpec,
-    verifier::Verifier,
-};
+use super::{boundary::Boundary, environment::Environment, model::ModelSpec, verifier::Verifier};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// Custom tool configuration
+/// Prompt configuration — required section
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CustomTool {
-    pub name: String,
-    pub description: String,
-    pub tool_type: String,
-    // Shell tool fields
-    pub command: Option<String>,
-    // Python tool fields
-    pub script: Option<String>,
-    pub function: Option<String>,
-    pub input_schema: serde_json::Value,
-}
+pub struct Prompt {
+    /// The agent's goal / initial prompt
+    pub goal: String,
 
-/// A field defines a complete agent task configuration
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Field {
-    /// Name of the field
-    pub name: String,
-
-    /// Human-readable description of the field's purpose
+    /// Optional system prompt (replaces environment_context + context.system_prompt)
     #[serde(default)]
-    pub description: Option<String>,
-
-    /// Model configuration
-    pub model: ModelSpec,
-
-    /// Environment configuration
-    pub environment: Environment,
-
-    /// Boundary policy
-    #[serde(default)]
-    pub boundary: Boundary,
-
-    /// Context policy (token budget, cost limits)
-    #[serde(default)]
-    pub context: ContextPolicy,
-
-    /// Verifiers to run during execution
-    #[serde(default)]
-    pub verifiers: Vec<Verifier>,
+    pub system: Option<String>,
 
     /// Re-observation commands to run before each step
     #[serde(default)]
     pub re_observation: Vec<String>,
+}
 
-    /// Optional custom environment context to append
+/// Unified tool configuration (python, shell, or mcp)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Tool {
+    /// Tool type: "python", "shell", or "mcp"
+    pub tool_type: String,
+
+    /// Tool name
     #[serde(default)]
-    pub environment_context: Option<String>,
+    pub name: Option<String>,
 
-    /// Initial prompt/goal for the agent
-    pub goal: String,
-
-    /// Custom tools defined in the field
+    /// Tool description
     #[serde(default)]
-    pub custom_tools: Vec<CustomTool>,
+    pub description: Option<String>,
 
-    /// Enable Code Mode execution (requires code-mode feature)
+    // Python tool fields
+    /// Path to the Python script file (renamed from "script")
     #[serde(default)]
-    pub code_mode: Option<CodeModeConfig>,
+    pub file: Option<String>,
 
-    /// MCP servers to connect to
+    /// Python function name to call
     #[serde(default)]
-    pub mcp_servers: Vec<McpServer>,
+    pub function: Option<String>,
 
-    /// Container configuration for sandbox customization
+    /// Input JSON schema
     #[serde(default)]
-    pub container: ContainerConfig,
+    pub input_schema: serde_json::Value,
 
-    /// Optional JSON schema for structured output validation
+    /// Output JSON schema (optional)
     #[serde(default)]
     pub output_schema: Option<serde_json::Value>,
 
-    /// Directory containing the field.toml file (for path resolution)
-    /// None if field was loaded from stdin or string
-    #[serde(skip)]
-    pub config_dir: Option<PathBuf>,
-}
+    // Shell tool fields
+    /// Shell command template
+    #[serde(default)]
+    pub command: Option<String>,
 
-/// Code Mode configuration
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CodeModeConfig {
-    /// Enable code mode
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-}
+    // MCP tool fields
+    /// MCP command args
+    #[serde(default)]
+    pub args: Vec<String>,
 
-fn default_true() -> bool {
-    true
+    /// MCP environment variables
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+
+    /// MCP server URL (for HTTP/SSE transport)
+    #[serde(default)]
+    pub url: Option<String>,
+
+    /// MCP HTTP headers
+    #[serde(default)]
+    pub headers: Option<HashMap<String, String>>,
+
+    /// MCP transport: "stdio", "http", or "sse"
+    #[serde(default)]
+    pub transport: Option<McpTransport>,
 }
 
 /// MCP server transport type
@@ -116,11 +92,53 @@ pub enum McpTransport {
     },
 }
 
-/// MCP server configuration
+/// MCP server configuration (kept for runtime use by McpServerManager)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct McpServer {
     pub name: String,
     pub transport: McpTransport,
+}
+
+/// A field defines a complete agent task configuration
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Field {
+    /// Name of the field
+    pub name: String,
+
+    /// Human-readable description of the field's purpose
+    #[serde(default)]
+    pub description: Option<String>,
+
+    /// Model configuration
+    pub model: ModelSpec,
+
+    /// Prompt configuration (goal, system, re_observation)
+    pub prompt: Prompt,
+
+    /// Environment configuration
+    #[serde(default)]
+    pub environment: Environment,
+
+    /// Boundary policy
+    #[serde(default)]
+    pub boundary: Boundary,
+
+    /// Unified tools list (python, shell, mcp)
+    #[serde(default)]
+    pub tools: Vec<Tool>,
+
+    /// Verifiers to run during execution
+    #[serde(default)]
+    pub verifiers: Vec<Verifier>,
+
+    /// Optional JSON schema for structured output validation
+    #[serde(default)]
+    pub output_schema: Option<serde_json::Value>,
+
+    /// Directory containing the field.toml file (for path resolution)
+    /// None if field was loaded from stdin or string
+    #[serde(skip)]
+    pub config_dir: Option<PathBuf>,
 }
 
 impl Field {
@@ -129,17 +147,15 @@ impl Field {
             name,
             description: None,
             model,
+            prompt: Prompt {
+                goal,
+                system: None,
+                re_observation: Vec::new(),
+            },
             environment,
             boundary: Boundary::default(),
-            context: ContextPolicy::default(),
+            tools: Vec::new(),
             verifiers: Vec::new(),
-            re_observation: Vec::new(),
-            environment_context: None,
-            goal,
-            custom_tools: Vec::new(),
-            code_mode: None,
-            mcp_servers: Vec::new(),
-            container: ContainerConfig::default(),
             output_schema: None,
             config_dir: None,
         }
@@ -155,18 +171,13 @@ impl Field {
         self
     }
 
-    pub fn with_context(mut self, context: ContextPolicy) -> Self {
-        self.context = context;
-        self
-    }
-
     pub fn add_verifier(mut self, verifier: Verifier) -> Self {
         self.verifiers.push(verifier);
         self
     }
 
     pub fn add_re_observation(mut self, command: String) -> Self {
-        self.re_observation.push(command);
+        self.prompt.re_observation.push(command);
         self
     }
 }

@@ -1,6 +1,11 @@
 name = "mcp-filesystem-test"
 description = "Test MCP filesystem server integration with Code Mode"
 
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.0
+
+[prompt]
 goal = """
 You have access to an MCP filesystem server.
 
@@ -13,29 +18,23 @@ Use Code Mode to chain these MCP operations together.
 Stop once you've verified the file was created successfully.
 """
 
-[model]
-name = "anthropic/claude-sonnet-4.6"
-temperature = 0.0
-max_tokens = 8000
+[environment]
+root = "./workspace"
 
 [boundary]
 allow_write = ["test.txt"]
 network = "allow"
-
-[context]
 max_tokens = 150000
 max_cost = "$2.00"
 max_steps = 20
 
-[code_mode]
-enabled = true
-
-[[mcp_server]]
+[[tool]]
+type = "mcp"
 name = "filesystem"
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
 
-[[verifiers]]
+[[verifier]]
 name = "file-created"
 command = """
 if [ -f "test.txt" ]; then

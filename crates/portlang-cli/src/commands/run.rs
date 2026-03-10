@@ -20,7 +20,7 @@ pub async fn run_command(field_path: PathBuf) -> Result<()> {
     }
 
     println!("Model: {}", field.model.name);
-    println!("Goal: {}", field.goal);
+    println!("Goal: {}", field.prompt.goal);
     println!();
 
     // Create provider based on model name
@@ -31,9 +31,6 @@ pub async fn run_command(field_path: PathBuf) -> Result<()> {
         if let Some(temp) = field.model.temperature {
             p = p.with_temperature(temp);
         }
-        if let Some(max_tokens) = field.model.max_tokens {
-            p = p.with_max_tokens(max_tokens);
-        }
         Box::new(p)
     } else {
         // Anthropic direct
@@ -41,9 +38,6 @@ pub async fn run_command(field_path: PathBuf) -> Result<()> {
         let mut p = AnthropicProvider::from_env(&field.model.name)?;
         if let Some(temp) = field.model.temperature {
             p = p.with_temperature(temp);
-        }
-        if let Some(max_tokens) = field.model.max_tokens {
-            p = p.with_max_tokens(max_tokens);
         }
         Box::new(p)
     };

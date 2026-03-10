@@ -1,6 +1,11 @@
 name = "file-processing-code-mode"
 description = "Multi-file log processing with Code Mode"
 
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.0
+
+[prompt]
 goal = """
 You have log files and processing tools available.
 
@@ -16,28 +21,21 @@ With Code Mode, you can process all files and aggregate without flooding your co
 Stop once stats.json is created.
 """
 
-[model]
-name = "anthropic/claude-sonnet-4.6"
-temperature = 0.0
-max_tokens = 8000
+[environment]
+root = "./workspace"
 
 [boundary]
 allow_write = ["stats.json"]
 network = "deny"
-
-[context]
 max_tokens = 100000
 max_cost = "$1.00"
 max_steps = 15
 
-[code_mode]
-enabled = true
-
 [[tool]]
 type = "python"
-script = "./tools/log_tools.py"
+file = "./tools/log_tools.py"
 
-[[verifiers]]
+[[verifier]]
 name = "correct-counts"
 command = """
 python3 -c "

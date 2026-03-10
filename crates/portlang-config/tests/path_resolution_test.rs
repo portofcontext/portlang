@@ -1,5 +1,4 @@
 use portlang_config::parse_field_from_file;
-use portlang_core::Environment;
 use std::fs;
 use std::io::Write;
 use tempfile::TempDir;
@@ -33,18 +32,19 @@ def add(x: int, y: int) -> int:
         .write_all(
             b"
 name = \"test-field\"
-goal = \"Test relative path resolution\"
 
 [model]
 name = \"test-model\"
 
+[prompt]
+goal = \"Test relative path resolution\"
+
 [environment]
-type = \"local\"
 root = \"./workspace\"
 
 [[tool]]
 type = \"python\"
-script = \"./tools/calculator.py\"
+file = \"./tools/calculator.py\"
 function = \"add\"
 ",
         )
@@ -55,29 +55,28 @@ function = \"add\"
     let field = parse_field_from_file(&field_path).unwrap();
 
     // Verify environment root is resolved correctly
-    let Environment::Local { root } = &field.environment;
     let expected_root = field_dir.join("workspace");
     assert_eq!(
-        root,
-        &expected_root.to_string_lossy().to_string(),
+        field.environment.root,
+        expected_root.to_string_lossy().to_string(),
         "Environment root should be resolved relative to field.toml"
     );
 
-    // Verify tool script is resolved correctly
-    assert_eq!(field.custom_tools.len(), 1);
-    let script_path = field.custom_tools[0].script.as_ref().unwrap();
-    let expected_script = field_dir.join("tools/calculator.py");
+    // Verify tool file is resolved correctly
+    assert_eq!(field.tools.len(), 1);
+    let file_path = field.tools[0].file.as_ref().unwrap();
+    let expected_file = field_dir.join("tools/calculator.py");
     assert_eq!(
-        script_path,
-        &expected_script.to_string_lossy().to_string(),
-        "Tool script should be resolved relative to field.toml"
+        file_path,
+        &expected_file.to_string_lossy().to_string(),
+        "Tool file should be resolved relative to field.toml"
     );
 
     // Verify config_dir is set
     assert_eq!(field.config_dir, Some(field_dir.to_path_buf()));
 
     // Verify tool was auto-discovered
-    assert_eq!(field.custom_tools[0].name, "add");
+    assert_eq!(field.tools[0].name.as_deref(), Some("add"));
 }
 
 #[test]
@@ -93,13 +92,14 @@ fn test_field_portable_across_working_directories() {
         &field_path,
         b"
 name = \"portable\"
-goal = \"Test portability\"
 
 [model]
 name = \"test\"
 
+[prompt]
+goal = \"Test portability\"
+
 [environment]
-type = \"local\"
 root = \"./workspace\"
 ",
     )
@@ -119,22 +119,18 @@ root = \"./workspace\"
     // Restore original directory
     std::env::set_current_dir(original_dir).unwrap();
 
-    // Both should resolve to the same absolute path
-    let Environment::Local { root: root1 } = &field1.environment;
-    let Environment::Local { root: root2 } = &field2.environment;
-
     // On macOS, /var and /private/var are the same, so normalize for comparison
     let normalize = |p: &str| -> String { p.replace("/private/var", "/var") };
 
     assert_eq!(
-        normalize(root1),
-        normalize(root2),
+        normalize(&field1.environment.root),
+        normalize(&field2.environment.root),
         "Field should resolve to same paths regardless of CWD"
     );
 
     let expected = project_dir.join("workspace");
     assert_eq!(
-        normalize(root1),
+        normalize(&field1.environment.root),
         normalize(&expected.to_string_lossy().to_string())
     );
 }

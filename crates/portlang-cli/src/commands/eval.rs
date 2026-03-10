@@ -65,17 +65,11 @@ pub async fn eval_command(directory: PathBuf) -> Result<()> {
             if let Some(temp) = field.model.temperature {
                 p = p.with_temperature(temp);
             }
-            if let Some(max_tokens) = field.model.max_tokens {
-                p = p.with_max_tokens(max_tokens);
-            }
             Box::new(p)
         } else {
             let mut p = AnthropicProvider::from_env(&field.model.name)?;
             if let Some(temp) = field.model.temperature {
                 p = p.with_temperature(temp);
-            }
-            if let Some(max_tokens) = field.model.max_tokens {
-                p = p.with_max_tokens(max_tokens);
             }
             Box::new(p)
         };

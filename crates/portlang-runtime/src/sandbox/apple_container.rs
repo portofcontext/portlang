@@ -2,7 +2,7 @@ use super::error::{BoundaryViolation, Result, SandboxError};
 use super::traits::{CommandOutput, Sandbox};
 use crate::tools::ToolRegistry;
 use async_trait::async_trait;
-use portlang_core::{Action, Boundary};
+use portlang_core::{Action, Boundary, Environment};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -19,28 +19,25 @@ pub struct AppleContainerSandbox {
 
 impl AppleContainerSandbox {
     /// Determine which container image to use based on configuration
-    async fn determine_image(
-        config: &portlang_core::ContainerConfig,
-        container_name: &str,
-    ) -> Result<String> {
+    async fn determine_image(environment: &Environment, container_name: &str) -> Result<String> {
         // Priority: custom image > dockerfile > packages > default
 
-        if let Some(ref image) = config.image {
+        if let Some(ref image) = environment.image {
             // Use pre-built image
             tracing::info!("Using custom image: {}", image);
             return Ok(image.clone());
         }
 
-        if let Some(ref dockerfile_path) = config.dockerfile {
+        if let Some(ref dockerfile_path) = environment.dockerfile {
             // Build from custom Dockerfile
             tracing::info!("Building image from Dockerfile: {}", dockerfile_path);
             return Self::build_from_dockerfile(dockerfile_path, container_name).await;
         }
 
-        if !config.packages.is_empty() {
+        if !environment.packages.is_empty() {
             // Build image with required packages
-            tracing::info!("Building image with packages: {:?}", config.packages);
-            return Self::build_with_packages(&config.packages, container_name).await;
+            tracing::info!("Building image with packages: {:?}", environment.packages);
+            return Self::build_with_packages(&environment.packages, container_name).await;
         }
 
         // Default: minimal debian image with nothing extra installed
@@ -130,7 +127,7 @@ impl AppleContainerSandbox {
         host_root: PathBuf,
         boundary: Boundary,
         registry: Arc<ToolRegistry>,
-        container_config: &portlang_core::ContainerConfig,
+        environment: &Environment,
     ) -> Result<Self> {
         // Create workspace on host
         if !host_root.exists() {
@@ -142,7 +139,7 @@ impl AppleContainerSandbox {
         let container_name = format!("portlang-{}", Uuid::new_v4());
 
         // Determine which image to use
-        let image = Self::determine_image(container_config, &container_name).await?;
+        let image = Self::determine_image(environment, &container_name).await?;
 
         // Apple's container CLI (similar to docker but native)
         // Network configuration: Allow network access by default for package downloads

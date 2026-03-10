@@ -1,6 +1,11 @@
 name = "multi-step-pipeline-code-mode"
 description = "Multi-step data transformation pipeline with Code Mode"
 
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.0
+
+[prompt]
 goal = """
 You have CSV data and transformation tools available.
 
@@ -17,28 +22,21 @@ With Code Mode, you can chain these operations without intermediate tool calls.
 Stop once summary.json is created.
 """
 
-[model]
-name = "anthropic/claude-sonnet-4.6"
-temperature = 0.0
-max_tokens = 8000
+[environment]
+root = "./workspace"
 
 [boundary]
 allow_write = ["summary.json"]
 network = "deny"
-
-[context]
 max_tokens = 150000
 max_cost = "$2.00"
 max_steps = 20
 
-[code_mode]
-enabled = true
-
 [[tool]]
 type = "python"
-script = "./tools/pipeline_tools.py"
+file = "./tools/pipeline_tools.py"
 
-[[verifiers]]
+[[verifier]]
 name = "correct-aggregation"
 command = """
 python3 -c "

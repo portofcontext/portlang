@@ -2,29 +2,36 @@ use portlang_config::parse_field_from_str;
 use portlang_core::McpTransport;
 
 #[test]
-fn test_mcp_server_config() {
+fn test_mcp_tool_config() {
     let toml = r#"
         name = "test-mcp"
-        goal = "Test MCP server configuration"
 
         [model]
         name = "anthropic/claude-sonnet-4.5"
 
+        [prompt]
+        goal = "Test MCP tool configuration"
+
         [environment]
-        type = "local"
         root = "/tmp/test"
 
-        [[mcp_server]]
+        [[tool]]
+        type = "mcp"
         name = "filesystem"
         command = "npx"
         args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
     "#;
 
     let field = parse_field_from_str(toml).unwrap();
-    assert_eq!(field.mcp_servers.len(), 1);
-    assert_eq!(field.mcp_servers[0].name, "filesystem");
+    let mcp_tools: Vec<_> = field
+        .tools
+        .iter()
+        .filter(|t| t.tool_type == "mcp")
+        .collect();
+    assert_eq!(mcp_tools.len(), 1);
+    assert_eq!(mcp_tools[0].name.as_deref(), Some("filesystem"));
 
-    match &field.mcp_servers[0].transport {
+    match mcp_tools[0].transport.as_ref().unwrap() {
         McpTransport::Stdio { command, args, .. } => {
             assert_eq!(command, "npx");
             assert_eq!(args.len(), 3);
@@ -34,35 +41,43 @@ fn test_mcp_server_config() {
 }
 
 #[test]
-fn test_multiple_mcp_servers() {
+fn test_multiple_mcp_tools() {
     let toml = r#"
         name = "test-mcp"
-        goal = "Test multiple MCP servers"
 
         [model]
         name = "anthropic/claude-sonnet-4.5"
 
+        [prompt]
+        goal = "Test multiple MCP tools"
+
         [environment]
-        type = "local"
         root = "/tmp/test"
 
-        [[mcp_server]]
+        [[tool]]
+        type = "mcp"
         name = "filesystem"
         command = "npx"
         args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
 
-        [[mcp_server]]
+        [[tool]]
+        type = "mcp"
         name = "github"
         command = "mcp-server-github"
         env = { GITHUB_TOKEN = "${GITHUB_TOKEN}" }
     "#;
 
     let field = parse_field_from_str(toml).unwrap();
-    assert_eq!(field.mcp_servers.len(), 2);
-    assert_eq!(field.mcp_servers[0].name, "filesystem");
-    assert_eq!(field.mcp_servers[1].name, "github");
+    let mcp_tools: Vec<_> = field
+        .tools
+        .iter()
+        .filter(|t| t.tool_type == "mcp")
+        .collect();
+    assert_eq!(mcp_tools.len(), 2);
+    assert_eq!(mcp_tools[0].name.as_deref(), Some("filesystem"));
+    assert_eq!(mcp_tools[1].name.as_deref(), Some("github"));
 
-    match &field.mcp_servers[1].transport {
+    match mcp_tools[1].transport.as_ref().unwrap() {
         McpTransport::Stdio { env, .. } => {
             assert_eq!(
                 env.get("GITHUB_TOKEN"),
@@ -74,19 +89,21 @@ fn test_multiple_mcp_servers() {
 }
 
 #[test]
-fn test_mcp_server_with_env_vars() {
+fn test_mcp_tool_with_env_vars() {
     let toml = r#"
         name = "test-mcp"
-        goal = "Test MCP server with environment variables"
 
         [model]
         name = "anthropic/claude-sonnet-4.5"
 
+        [prompt]
+        goal = "Test MCP tool with environment variables"
+
         [environment]
-        type = "local"
         root = "/tmp/test"
 
-        [[mcp_server]]
+        [[tool]]
+        type = "mcp"
         name = "custom"
         command = "my-server"
         args = ["--port", "8080"]
@@ -94,9 +111,14 @@ fn test_mcp_server_with_env_vars() {
     "#;
 
     let field = parse_field_from_str(toml).unwrap();
-    assert_eq!(field.mcp_servers.len(), 1);
+    let mcp_tools: Vec<_> = field
+        .tools
+        .iter()
+        .filter(|t| t.tool_type == "mcp")
+        .collect();
+    assert_eq!(mcp_tools.len(), 1);
 
-    match &field.mcp_servers[0].transport {
+    match mcp_tools[0].transport.as_ref().unwrap() {
         McpTransport::Stdio { env, .. } => {
             assert_eq!(env.get("API_KEY"), Some(&"secret".to_string()));
             assert_eq!(env.get("DEBUG"), Some(&"true".to_string()));
@@ -109,16 +131,18 @@ fn test_mcp_server_with_env_vars() {
 fn test_invalid_mcp_transport() {
     let toml = r#"
         name = "test-mcp"
-        goal = "Test invalid transport"
 
         [model]
         name = "anthropic/claude-sonnet-4.5"
 
+        [prompt]
+        goal = "Test invalid transport"
+
         [environment]
-        type = "local"
         root = "/tmp/test"
 
-        [[mcp_server]]
+        [[tool]]
+        type = "mcp"
         name = "test"
         command = "test"
         transport = "websocket"
@@ -133,19 +157,21 @@ fn test_invalid_mcp_transport() {
 }
 
 #[test]
-fn test_empty_mcp_server_name() {
+fn test_empty_mcp_tool_name() {
     let toml = r#"
         name = "test-mcp"
-        goal = "Test empty server name"
 
         [model]
         name = "anthropic/claude-sonnet-4.5"
 
+        [prompt]
+        goal = "Test empty tool name"
+
         [environment]
-        type = "local"
         root = "/tmp/test"
 
-        [[mcp_server]]
+        [[tool]]
+        type = "mcp"
         name = ""
         command = "test"
     "#;
@@ -155,23 +181,25 @@ fn test_empty_mcp_server_name() {
     assert!(result
         .unwrap_err()
         .to_string()
-        .contains("MCP server name cannot be empty"));
+        .contains("MCP tool name cannot be empty"));
 }
 
 #[test]
-fn test_empty_mcp_server_command() {
+fn test_empty_mcp_tool_command() {
     let toml = r#"
         name = "test-mcp"
-        goal = "Test empty command"
 
         [model]
         name = "anthropic/claude-sonnet-4.5"
 
+        [prompt]
+        goal = "Test empty command"
+
         [environment]
-        type = "local"
         root = "/tmp/test"
 
-        [[mcp_server]]
+        [[tool]]
+        type = "mcp"
         name = "test"
         command = ""
     "#;
@@ -181,23 +209,25 @@ fn test_empty_mcp_server_command() {
     assert!(result
         .unwrap_err()
         .to_string()
-        .contains("MCP server command cannot be empty"));
+        .contains("MCP tool command cannot be empty"));
 }
 
 #[test]
-fn test_mcp_server_sse_transport() {
+fn test_mcp_tool_sse_transport() {
     let toml = r#"
         name = "test-mcp"
-        goal = "Test SSE/HTTP transport"
 
         [model]
         name = "anthropic/claude-sonnet-4.5"
 
+        [prompt]
+        goal = "Test SSE/HTTP transport"
+
         [environment]
-        type = "local"
         root = "/tmp/test"
 
-        [[mcp_server]]
+        [[tool]]
+        type = "mcp"
         name = "remote-server"
         transport = "sse"
         url = "https://api.example.com/mcp"
@@ -205,10 +235,15 @@ fn test_mcp_server_sse_transport() {
     "#;
 
     let field = parse_field_from_str(toml).unwrap();
-    assert_eq!(field.mcp_servers.len(), 1);
-    assert_eq!(field.mcp_servers[0].name, "remote-server");
+    let mcp_tools: Vec<_> = field
+        .tools
+        .iter()
+        .filter(|t| t.tool_type == "mcp")
+        .collect();
+    assert_eq!(mcp_tools.len(), 1);
+    assert_eq!(mcp_tools[0].name.as_deref(), Some("remote-server"));
 
-    match &field.mcp_servers[0].transport {
+    match mcp_tools[0].transport.as_ref().unwrap() {
         McpTransport::Sse { url, headers } => {
             assert_eq!(url, "https://api.example.com/mcp");
             assert_eq!(
@@ -221,19 +256,21 @@ fn test_mcp_server_sse_transport() {
 }
 
 #[test]
-fn test_mcp_server_missing_url() {
+fn test_mcp_tool_missing_url() {
     let toml = r#"
         name = "test-mcp"
-        goal = "Test missing URL for SSE transport"
 
         [model]
         name = "anthropic/claude-sonnet-4.5"
 
+        [prompt]
+        goal = "Test missing URL for SSE transport"
+
         [environment]
-        type = "local"
         root = "/tmp/test"
 
-        [[mcp_server]]
+        [[tool]]
+        type = "mcp"
         name = "remote-server"
         transport = "sse"
     "#;

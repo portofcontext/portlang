@@ -7,7 +7,6 @@ description = "..."             # human-readable summary
 [model]                         # (required)
 name = "..."                    # (required) e.g. "anthropic/claude-sonnet-4.6"
 temperature = 0.5               # sampling temperature, default 0.5
-max_tokens = 8000               # max tokens per API call (not total budget)
 
 [prompt]                        # (required)
 goal = "..."                    # (required) initial task, enters context at step 0
@@ -17,8 +16,8 @@ re_observation = ["cmd", ...]   # commands that run before each step to refresh 
 [environment]                   # optional, all fields have defaults
 root = "./workspace"            # working directory (maps to /workspace in container)
 packages = ["nodejs", "npm"]    # apt packages; uv installed via pip if listed
-dockerfile = "./Dockerfile"     # custom Dockerfile (overrides packages)
-image = "custom:image"          # pre-built image (overrides dockerfile and packages)
+dockerfile = "./Dockerfile"     # custom Dockerfile (overrides anything in ^)
+image = "custom:image"          # pre-built image (overrides anything in ^ on ^^)
 
 [boundary]                      # optional
 allow_write = ["*.txt", ...]    # glob patterns for writable paths; default: none
@@ -27,7 +26,7 @@ max_tokens = 150000             # hard ceiling on total context tokens across en
 max_cost = "$2.00"              # hard ceiling on total cost
 max_steps = 30                  # hard ceiling on agent steps
 
-[[tool]]                        # repeatable; zero or more
+[[tool]]                        # repeatable; zero or more; type = "python" | "shell" | "mcp"
 type = "python"                 # --- python tool ---
 file = "./tools/calc.py"        # path to Python file (required)
 function = "execute"            # function to call; if omitted, all functions are exposed
@@ -56,7 +55,7 @@ transport = "stdio" | "http" | "sse"  # default: stdio
 [[verifier]]                    # repeatable; zero or more
 name = "..."                    # (required) identifier
 command = "..."                 # (required) shell command; exit 0 = pass, nonzero = fail
-trigger = "on_stop"             # when to run (currently only on_stop)
+trigger = "on_stop" | "always" | "on_write"  # default: on_stop
 description = "..."             # injected into context on failure
 
 [output_schema]                 # optional; JSON schema for structured output validation as string
