@@ -1,10 +1,17 @@
 # field.toml structure
 # All fields are optional unless marked (required)
+#
+# Inheritance: a child field.toml may set model, tools, boundary, or code_mode
+# to "inherit" to pull the value from a parent field.toml one directory up.
+# Auto-detection: if ../field.toml exists relative to the child, it is used
+# automatically as the parent — no explicit flag required.
+# Example child:  model = "inherit"   tools = "inherit"
+# Example parent: a field.toml with [model], [[tool]], [boundary], etc.
 
 name = "..."                    # (required) identifier, used in trajectory storage
 description = "..."             # human-readable summary
 
-[model]                         # (required)
+[model]                         # (required, or model = "inherit" to pull from parent)
 name = "..."                    # (required) e.g. "anthropic/claude-sonnet-4.6"
 temperature = 0.5               # sampling temperature, default 0.5
 
@@ -19,12 +26,14 @@ packages = ["nodejs", "npm"]    # apt packages; uv installed via pip if listed
 dockerfile = "./Dockerfile"     # custom Dockerfile (overrides anything in ^)
 image = "custom:image"          # pre-built image (overrides anything in ^ on ^^)
 
-[boundary]                      # optional
+[boundary]                      # optional, or boundary = "inherit" to pull from parent
 allow_write = ["*.txt", ...]    # glob patterns for writable paths; default: none
 network = "deny" | "allow"      # default: allow
 max_tokens = 150000             # hard ceiling on total context tokens across entire run
 max_cost = "$2.00"              # hard ceiling on total cost
 max_steps = 30                  # hard ceiling on agent steps
+
+tools = "inherit"               # optional; inherit [[tool]] list from parent instead of defining inline
 
 [[tool]]                        # repeatable; zero or more; type = "python" | "shell" | "mcp"
 type = "python"                 # --- python tool ---
