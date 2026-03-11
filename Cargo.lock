@@ -4683,29 +4683,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "portlang-adapt"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "portlang-core",
- "portlang-trajectory",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "portlang-check"
-version = "0.1.0"
-dependencies = [
- "glob",
- "portlang-config",
- "portlang-core",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "portlang-cli"
-version = "0.1.0"
+name = "portlang"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4733,8 +4712,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "portlang-adapt"
+version = "0.1.1"
+dependencies = [
+ "chrono",
+ "portlang-core",
+ "portlang-trajectory",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "portlang-check"
+version = "0.1.1"
+dependencies = [
+ "glob",
+ "portlang-config",
+ "portlang-core",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "portlang-config"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "dirs",
@@ -4765,7 +4765,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4778,14 +4778,14 @@ dependencies = [
 
 [[package]]
 name = "portlang-pipeline"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "portlang-core",
 ]
 
 [[package]]
 name = "portlang-provider-anthropic"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4799,14 +4799,14 @@ dependencies = [
 
 [[package]]
 name = "portlang-provider-openai"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "portlang-core",
 ]
 
 [[package]]
 name = "portlang-provider-openrouter"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4822,7 +4822,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-runtime"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4849,7 +4849,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-trajectory"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
