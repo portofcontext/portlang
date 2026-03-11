@@ -5,6 +5,8 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+description = "A CLI for building reliable, model-agnostic agents"
+homepage = "https://github.com/portofcontext/portlang"
 
 [[bin]]
 name = "portlang"

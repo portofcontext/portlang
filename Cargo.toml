@@ -19,7 +19,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Patrick Kelly"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/patrickkelly/portofcontext"
+repository = "https://github.com/portofcontext/portlang"
 
 [workspace.dependencies]
 # Core dependencies
@@ -58,3 +58,8 @@ portlang-pipeline = { path = "crates/portlang-pipeline" }
 portlang-provider-anthropic = { path = "crates/portlang-provider-anthropic" }
 portlang-provider-openrouter = { path = "crates/portlang-provider-openrouter" }
 portlang-provider-openai = { path = "crates/portlang-provider-openai" }
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
