@@ -31,31 +31,40 @@ Agent behavior is search through a conditioned space. The policy is trained and 
 
 ## Getting Started
 
+### Install via Homebrew
+
+```bash
+brew tap portofcontext/homebrew-tap
+brew install portlang
+```
+
+### Build from Source
+
 ```bash
 git clone https://github.com/portofcontext/portlang
 cd portlang
 cargo build --release
+```
 
+### Setup
+
+```bash
 # Set an API Key
 export OPENROUTER_API_KEY=...
 export ANTHROPIC_API_KEY=...
 
-# Helps install apple container dependency
-./target/release/portlang init --start
+# Install apple container dependency
+portlang init --start
+
+# (optional) install the agent skill to guide you as you build your first portlang agents
+npx skills add https://github.com/portofcontext/skills --skill portlang
 
 # Run a field
-./target/release/portlang run examples/02-code-task/field.toml
+portlang run examples/02-code-task/field.toml
 ```
-### portlang CLI
-Complete reference here: [CLI Reference](./CLI.md)
 
-### portlang skill
-
-Install the portlang skill for interactive guidance:
-
-```bash
-npx skills add https://github.com/portofcontext/skills --skill portlang
-```
+### CLI Reference
+Complete [CLI Reference](./CLI.md) that includes all commands and flags.
 
 ## Example: Data Processing with Multi-Layer Verification
 
