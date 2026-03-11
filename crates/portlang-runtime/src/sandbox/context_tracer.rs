@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn test_trace_value_in_system_prompt() {
-        let mut tracer = ContextTracer::new(
+        let tracer = ContextTracer::new(
             Some("Working Directory: /workspace\nYou are an agent.".to_string()),
             None,
         );

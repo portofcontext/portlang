@@ -51,7 +51,7 @@ impl EnvironmentContext {
 
             let depth = path.matches('/').count();
             let indent = "  ".repeat(depth);
-            let name = path.split('/').last().unwrap_or(path);
+            let name = path.split('/').next_back().unwrap_or(path);
 
             result.push_str(&format!("{}{}\n", indent, name));
         }

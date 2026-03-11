@@ -98,14 +98,36 @@ pub struct RawBoundary {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct RawVerifier {
     pub name: String,
-    pub command: String,
+    /// Algorithm type: "shell" (default), "levenshtein", "json", "semantic"
+    #[serde(rename = "type", default = "default_verifier_type")]
+    pub verifier_type: String,
+    // Shell fields
+    #[serde(default)]
+    pub command: Option<String>,
+    // Built-in verifier fields
+    #[serde(default)]
+    pub file: Option<String>,
+    #[serde(default)]
+    pub expected: Option<String>,
+    #[serde(default)]
+    pub threshold: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_schema")]
+    pub schema: Option<serde_json::Value>,
+    #[serde(default)]
+    pub embedding_url: Option<String>,
+    #[serde(default)]
+    pub embedding_model: Option<String>,
+    // Common fields
     #[serde(default)]
     pub trigger: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+}
+
+fn default_verifier_type() -> String {
+    "shell".to_string()
 }
 
 /// Helper type for parsing cost as either string ("$2.00") or number (2.0)

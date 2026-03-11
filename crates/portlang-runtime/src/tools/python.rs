@@ -6,19 +6,6 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::io::AsyncWriteExt;
 
-/// Check if uv is available on the system
-pub fn check_uv_available() -> Result<()> {
-    let output = std::process::Command::new("uv").arg("--version").output();
-
-    match output {
-        Ok(output) if output.status.success() => Ok(()),
-        _ => Err(SandboxError::ToolError(
-            "uv is not installed. Install it with: curl -LsSf https://astral.sh/uv/install.sh | sh\n\
-            See https://github.com/astral-sh/uv for more information.".to_string()
-        )),
-    }
-}
-
 /// Configuration for a Python tool
 #[derive(Debug, Clone)]
 pub enum PythonToolConfig {

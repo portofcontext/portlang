@@ -1,13 +1,64 @@
 use serde::{Deserialize, Serialize};
 
+/// The algorithm a verifier uses to evaluate agent output
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum VerifierAlgorithm {
+    /// Shell command: exit code 0 = pass (default)
+    Shell { command: String },
+    /// Normalized Levenshtein edit distance against a reference string
+    Levenshtein {
+        /// Workspace-relative path to the file containing actual output
+        file: String,
+        /// Reference string to compare against
+        expected: String,
+        /// Minimum normalized similarity [0.0, 1.0] required to pass (default: 1.0)
+        #[serde(default = "default_levenshtein_threshold")]
+        threshold: f64,
+    },
+    /// JSON structure validation, optionally against a JSON Schema
+    Json {
+        /// Workspace-relative path to the file to validate
+        file: String,
+        /// Optional JSON Schema (as a JSON value) to validate structure
+        #[serde(default)]
+        schema: Option<serde_json::Value>,
+    },
+    /// Cosine similarity of embeddings from an OpenAI-compatible embeddings API
+    Semantic {
+        /// Workspace-relative path to the file containing actual output
+        file: String,
+        /// Reference string to embed and compare against
+        expected: String,
+        /// Minimum cosine similarity [0.0, 1.0] required to pass (default: 0.8)
+        #[serde(default = "default_semantic_threshold")]
+        threshold: f64,
+        /// Embeddings endpoint URL (default: https://api.openai.com/v1/embeddings)
+        #[serde(default)]
+        embedding_url: Option<String>,
+        /// Embeddings model name (default: text-embedding-3-small)
+        #[serde(default)]
+        embedding_model: Option<String>,
+    },
+}
+
+fn default_levenshtein_threshold() -> f64 {
+    1.0
+}
+
+fn default_semantic_threshold() -> f64 {
+    0.8
+}
+
 /// Verifier configuration
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Verifier {
     /// Name of the verifier
     pub name: String,
 
-    /// Shell command to run for verification
-    pub command: String,
+    /// Algorithm used to evaluate the output
+    #[serde(flatten)]
+    pub algorithm: VerifierAlgorithm,
 
     /// When to trigger this verifier
     #[serde(default)]
@@ -33,15 +84,15 @@ pub enum VerifierTrigger {
 }
 
 /// Result of running a verifier
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VerifierResult {
     /// Name of the verifier that ran
     pub name: String,
 
-    /// Whether the verifier passed (exit code 0)
+    /// Whether the verifier passed
     pub passed: bool,
 
-    /// The command that was executed
+    /// The command that was executed (shell verifiers only)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
 
@@ -51,7 +102,7 @@ pub struct VerifierResult {
     /// Standard error from the verifier
     pub stderr: String,
 
-    /// Exit code
+    /// Exit code (shell verifiers) or 0/1 for built-in verifiers
     pub exit_code: i32,
 }
 

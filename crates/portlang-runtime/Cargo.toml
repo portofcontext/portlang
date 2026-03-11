@@ -28,6 +28,9 @@ rmcp = { version = "0.14.0", features = ["client", "transport-child-process", "t
 shellexpand = "3.1"
 reqwest = "0.12"
 jsonschema = "0.18"
+strsim = "0.11"
+fastembed = "4"
+dirs = "6.0"
 
 # Optional: Code Mode support
 pctx_code_mode = { version = "0.2.3", optional = true }

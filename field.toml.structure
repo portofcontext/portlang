@@ -52,10 +52,38 @@ url = "https://..."             # for http/sse transport (replaces command/args)
 headers = { Authorization = "Bearer ${TOKEN}" }  # for http/sse transport
 transport = "stdio" | "http" | "sse"  # default: stdio
 
-[[verifier]]                    # repeatable; zero or more
+[[verifier]]                    # repeatable; zero or more; type = "shell" | "levenshtein" | "json" | "semantic"
 name = "..."                    # (required) identifier
-command = "..."                 # (required) shell command; exit 0 = pass, nonzero = fail
 trigger = "on_stop" | "always" | "on_write"  # default: on_stop
 description = "..."             # injected into context on failure
+
+[[verifier]]
+type = "shell"                  # --- shell verifier (default when type is omitted) ---
+name = "..."                    # (required)
+command = "..."                 # (required) shell command; exit 0 = pass, nonzero = fail
+
+[[verifier]]
+type = "levenshtein"            # --- normalized edit distance ---
+name = "..."                    # (required)
+file = "output.txt"             # (required) workspace-relative path to actual output file
+expected = "..."                # (required) reference string to compare against
+threshold = 0.9                 # normalized similarity [0.0–1.0] required to pass; default: 1.0
+
+[[verifier]]
+type = "json"                   # --- JSON structure validation ---
+name = "..."                    # (required)
+file = "output.json"            # (required) workspace-relative path to file to validate
+schema = '{"type": "object"}'  # optional JSON Schema string; validates structure if provided
+
+[[verifier]]
+type = "semantic"               # --- cosine similarity via embeddings ---
+name = "..."                    # (required)
+file = "output.txt"             # (required) workspace-relative path to actual output file
+expected = "..."                # (required) reference string to embed and compare against
+threshold = 0.85                # cosine similarity [0.0–1.0] required to pass; default: 0.8
+embedding_model = "..."         # local: "bge-small-en-v1.5" (default), "all-minilm-l6-v2", "nomic-embed-text-v1.5"
+                                # model downloaded from HuggingFace on first use (~67 MB), no API key required
+embedding_url = "https://..."  # optional; set to use an OpenAI-compatible HTTP endpoint instead of local model
+                                # reads EMBEDDING_API_KEY or OPENAI_API_KEY from environment when embedding_url is set
 
 [output_schema]                 # optional; JSON schema for structured output validation as string
