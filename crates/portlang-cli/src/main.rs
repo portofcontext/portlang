@@ -22,11 +22,11 @@ enum Commands {
         path: Option<PathBuf>,
 
         /// Walk through field creation step by step
-        #[arg(long)]
+        #[arg(short = 'i', long)]
         interactive: bool,
 
         /// Field name (required without --interactive)
-        #[arg(long)]
+        #[arg(short = 'n', long)]
         name: Option<String>,
 
         /// Human-readable description of the field
@@ -34,7 +34,7 @@ enum Commands {
         description: Option<String>,
 
         /// Model identifier, e.g. "anthropic/claude-sonnet-4.6" or "openai/gpt-4o"
-        #[arg(long, default_value = "anthropic/claude-sonnet-4.6")]
+        #[arg(short = 'm', long, default_value = "anthropic/claude-sonnet-4.6")]
         model: String,
 
         /// Sampling temperature 0.0–1.0
@@ -42,7 +42,7 @@ enum Commands {
         temperature: f32,
 
         /// Agent goal / initial task prompt (required without --interactive)
-        #[arg(long)]
+        #[arg(short = 'g', long)]
         goal: Option<String>,
 
         /// System prompt prepended to every agent interaction
@@ -117,11 +117,19 @@ enum Commands {
     Run {
         /// Path to the field TOML file
         field_path: PathBuf,
+
+        /// Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
+        #[arg(short = 'p', long)]
+        parent_field: Option<PathBuf>,
     },
     /// Check a field for errors
     Check {
         /// Path to the field TOML file
         field_path: PathBuf,
+
+        /// Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
+        #[arg(short = 'p', long)]
+        parent_field: Option<PathBuf>,
     },
     /// Run a field N times and measure convergence reliability
     Converge {
@@ -131,11 +139,19 @@ enum Commands {
         /// Number of runs to execute
         #[arg(short = 'n', long, default_value = "10")]
         runs: usize,
+
+        /// Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
+        #[arg(short = 'p', long)]
+        parent_field: Option<PathBuf>,
     },
     /// Run all fields in a directory and report aggregate accuracy
     Eval {
         /// Directory containing field.toml files (searched recursively)
         directory: PathBuf,
+
+        /// Path to a parent field.toml to inherit from (defaults to <directory>/field.toml if present)
+        #[arg(short = 'p', long)]
+        parent_field: Option<PathBuf>,
 
         /// Generate HTML dashboard instead of CLI output
         #[arg(long)]
@@ -151,11 +167,11 @@ enum Commands {
         converged: bool,
 
         /// Show only failed trajectories
-        #[arg(long)]
+        #[arg(short = 'f', long)]
         failed: bool,
 
         /// Limit number of results
-        #[arg(long)]
+        #[arg(short = 'l', long)]
         limit: Option<usize>,
     },
     /// Replay a trajectory step-by-step
@@ -164,7 +180,7 @@ enum Commands {
         trajectory_id: String,
 
         /// Output format (text or json)
-        #[arg(long, default_value = "text")]
+        #[arg(short = 'f', long, default_value = "text")]
         format: String,
 
         /// Generate HTML viewer instead of CLI output
@@ -180,7 +196,7 @@ enum Commands {
         trajectory_b: String,
 
         /// Output format (text or json)
-        #[arg(long, default_value = "text")]
+        #[arg(short = 'f', long, default_value = "text")]
         format: String,
 
         /// Generate HTML comparison view instead of CLI output
@@ -197,11 +213,11 @@ enum Commands {
         converged: bool,
 
         /// Show only failed trajectories
-        #[arg(long)]
+        #[arg(short = 'f', long)]
         failed: bool,
 
         /// Limit number of trajectories to analyze
-        #[arg(long)]
+        #[arg(short = 'l', long)]
         limit: Option<usize>,
     },
     /// View evals and trajectories as interactive HTML
@@ -255,11 +271,11 @@ enum ViewSubcommand {
         converged: bool,
 
         /// Show only failed trajectories
-        #[arg(long)]
+        #[arg(short = 'f', long)]
         failed: bool,
 
         /// Limit number of trajectories to analyze
-        #[arg(long)]
+        #[arg(short = 'l', long)]
         limit: Option<usize>,
 
         /// Don't automatically open in browser
@@ -327,16 +343,28 @@ async fn main() {
                 commands::init::init_command()
             }
         }
-        Commands::Run { field_path } => commands::run::run_command(field_path).await,
-        Commands::Check { field_path } => commands::check::check_command(field_path),
-        Commands::Converge { field_path, runs } => {
-            commands::converge::converge_command(field_path, runs).await
-        }
-        Commands::Eval { directory, html } => {
+        Commands::Run {
+            field_path,
+            parent_field,
+        } => commands::run::run_command(field_path, parent_field).await,
+        Commands::Check {
+            field_path,
+            parent_field,
+        } => commands::check::check_command(field_path, parent_field),
+        Commands::Converge {
+            field_path,
+            runs,
+            parent_field,
+        } => commands::converge::converge_command(field_path, runs, parent_field).await,
+        Commands::Eval {
+            directory,
+            parent_field,
+            html,
+        } => {
             if html {
                 commands::view::view_eval(directory, true)
             } else {
-                commands::eval::eval_command(directory).await
+                commands::eval::eval_command(directory, parent_field).await
             }
         }
         Commands::List {

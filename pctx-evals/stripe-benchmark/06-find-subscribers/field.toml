@@ -1,9 +1,8 @@
 name = "06_find_subscribers"
 description = "Returns Noah Patel who is the only user subscribed to the starter plan in this Stripe account, along with their subscription status which is active"
 
-[model]
-name = "anthropic/claude-sonnet-4.6"
-temperature = 0.0
+model = "inherit"
+tools = "inherit"
 
 [prompt]
 goal = """
@@ -23,13 +22,6 @@ network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"
 max_steps = 30
-
-[[tool]]
-type = "mcp"
-name = "stripe"
-command = "npx"
-args = ["-y", "@stripe/mcp"]
-env = { STRIPE_SECRET_KEY = "${STRIPE_SECRET_KEY}" }
 
 [[verifier]]
 name = "result-file-exists"

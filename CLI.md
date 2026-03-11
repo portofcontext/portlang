@@ -57,16 +57,16 @@ Create a new field.toml
 
 ###### **Options:**
 
-* `--interactive` — Walk through field creation step by step
-* `--name <NAME>` — Field name (required without --interactive)
+* `-i`, `--interactive` — Walk through field creation step by step
+* `-n`, `--name <NAME>` — Field name (required without --interactive)
 * `--description <DESCRIPTION>` — Human-readable description of the field
-* `--model <MODEL>` — Model identifier, e.g. "anthropic/claude-sonnet-4.6" or "openai/gpt-4o"
+* `-m`, `--model <MODEL>` — Model identifier, e.g. "anthropic/claude-sonnet-4.6" or "openai/gpt-4o"
 
   Default value: `anthropic/claude-sonnet-4.6`
 * `--temperature <TEMPERATURE>` — Sampling temperature 0.0–1.0
 
   Default value: `1.0`
-* `--goal <GOAL>` — Agent goal / initial task prompt (required without --interactive)
+* `-g`, `--goal <GOAL>` — Agent goal / initial task prompt (required without --interactive)
 * `--system <SYSTEM>` — System prompt prepended to every agent interaction
 * `--re-observation <RE_OBSERVATION>` — Command run before each step to refresh agent context (repeatable)
 * `--package <PACKAGE>` — APT packages to install in the container (repeatable; use "uv" to install uv via pip)
@@ -115,11 +115,15 @@ Initialize and check portlang environment
 
 Run a field
 
-**Usage:** `portlang run <FIELD_PATH>`
+**Usage:** `portlang run [OPTIONS] <FIELD_PATH>`
 
 ###### **Arguments:**
 
 * `<FIELD_PATH>` — Path to the field TOML file
+
+###### **Options:**
+
+* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
 
 
 
@@ -127,11 +131,15 @@ Run a field
 
 Check a field for errors
 
-**Usage:** `portlang check <FIELD_PATH>`
+**Usage:** `portlang check [OPTIONS] <FIELD_PATH>`
 
 ###### **Arguments:**
 
 * `<FIELD_PATH>` — Path to the field TOML file
+
+###### **Options:**
+
+* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
 
 
 
@@ -150,6 +158,7 @@ Run a field N times and measure convergence reliability
 * `-n`, `--runs <RUNS>` — Number of runs to execute
 
   Default value: `10`
+* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
 
 
 
@@ -165,6 +174,7 @@ Run all fields in a directory and report aggregate accuracy
 
 ###### **Options:**
 
+* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field.toml to inherit from (defaults to <directory>/field.toml if present)
 * `--html` — Generate HTML dashboard instead of CLI output
 
 
@@ -182,8 +192,8 @@ List trajectories
 ###### **Options:**
 
 * `--converged` — Show only converged trajectories
-* `--failed` — Show only failed trajectories
-* `--limit <LIMIT>` — Limit number of results
+* `-f`, `--failed` — Show only failed trajectories
+* `-l`, `--limit <LIMIT>` — Limit number of results
 
 
 
@@ -199,7 +209,7 @@ Replay a trajectory step-by-step
 
 ###### **Options:**
 
-* `--format <FORMAT>` — Output format (text or json)
+* `-f`, `--format <FORMAT>` — Output format (text or json)
 
   Default value: `text`
 * `--html` — Generate HTML viewer instead of CLI output
@@ -219,7 +229,7 @@ Compare two trajectories
 
 ###### **Options:**
 
-* `--format <FORMAT>` — Output format (text or json)
+* `-f`, `--format <FORMAT>` — Output format (text or json)
 
   Default value: `text`
 * `--html` — Generate HTML comparison view instead of CLI output
@@ -239,8 +249,8 @@ Generate an adaptation report from existing trajectories
 ###### **Options:**
 
 * `--converged` — Show only converged trajectories
-* `--failed` — Show only failed trajectories
-* `--limit <LIMIT>` — Limit number of trajectories to analyze
+* `-f`, `--failed` — Show only failed trajectories
+* `-l`, `--limit <LIMIT>` — Limit number of trajectories to analyze
 
 
 
@@ -321,8 +331,8 @@ View field adaptation report
 ###### **Options:**
 
 * `--converged` — Show only converged trajectories
-* `--failed` — Show only failed trajectories
-* `--limit <LIMIT>` — Limit number of trajectories to analyze
+* `-f`, `--failed` — Show only failed trajectories
+* `-l`, `--limit <LIMIT>` — Limit number of trajectories to analyze
 * `--no-open` — Don't automatically open in browser
 
 

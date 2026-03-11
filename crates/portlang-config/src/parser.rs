@@ -27,22 +27,92 @@ fn normalize_path(path: &Path) -> PathBuf {
     components.iter().collect()
 }
 
-/// Parse a field from a TOML file
-pub fn parse_field_from_file(path: impl AsRef<Path>) -> Result<Field> {
+/// Resolved parent config from a parent field.toml (suite-level template)
+#[derive(Debug, Clone)]
+pub struct ParentConfig {
+    pub model: Option<RawModel>,
+    pub tools: Vec<RawTool>,
+    pub boundary: Option<RawBoundary>,
+    pub code_mode_enabled: Option<bool>,
+}
+
+/// Parse a parent field.toml (the suite-level template at the eval directory root).
+/// Returns None if the file does not exist.
+pub fn parse_parent_config(path: impl AsRef<Path>) -> Result<Option<ParentConfig>> {
+    let path = path.as_ref();
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(path)?;
+    let raw: RawParentConfig = toml::from_str(&content).map_err(|e| {
+        FieldParseError::InvalidField(format!(
+            "Failed to parse parent field.toml at {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    Ok(Some(ParentConfig {
+        model: raw.model,
+        tools: raw.tool,
+        boundary: raw.boundary,
+        code_mode_enabled: raw.code_mode.map(|cm| cm.enabled),
+    }))
+}
+
+/// Resolve the parent config for a field path:
+/// 1. If `explicit_parent` is provided, use it.
+/// 2. Otherwise, auto-detect from `../field.toml` relative to the field file.
+pub fn resolve_parent_config(
+    field_path: impl AsRef<Path>,
+    explicit_parent: Option<impl AsRef<Path>>,
+) -> Result<Option<ParentConfig>> {
+    if let Some(p) = explicit_parent {
+        return parse_parent_config(p);
+    }
+
+    // Auto-detect: look for field.toml one directory up
+    let field_path = field_path.as_ref();
+    let abs = if field_path.is_absolute() {
+        field_path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(field_path)
+    };
+
+    if let Some(parent_dir) = abs.parent().and_then(|d| d.parent()) {
+        let candidate = parent_dir.join("field.toml");
+        if candidate.exists() {
+            return parse_parent_config(candidate);
+        }
+    }
+
+    Ok(None)
+}
+
+/// Parse a field from a TOML file, resolving any "inherit" values from a parent config.
+pub fn parse_field_with_parent(
+    path: impl AsRef<Path>,
+    parent: Option<&ParentConfig>,
+) -> Result<Field> {
     let path = path.as_ref();
     let content = fs::read_to_string(path)?;
 
-    // Convert to absolute path to ensure consistent resolution
     let abs_path = if path.is_absolute() {
         path.to_path_buf()
     } else {
         std::env::current_dir()?.join(path)
     };
 
-    // Capture directory containing field.toml
     let config_dir = abs_path.parent().map(|p: &Path| p.to_path_buf());
 
-    parse_field_from_str_with_context(&content, config_dir)
+    let raw: RawField = toml::from_str(&content)?;
+    convert_raw_field(raw, config_dir, parent)
+}
+
+/// Parse a field from a TOML file
+pub fn parse_field_from_file(path: impl AsRef<Path>) -> Result<Field> {
+    parse_field_with_parent(path, None)
 }
 
 /// Parse a field from a TOML string
@@ -53,7 +123,7 @@ pub fn parse_field_from_str(toml_str: &str) -> Result<Field> {
 /// Parse a field from a TOML string with config directory context
 fn parse_field_from_str_with_context(toml_str: &str, config_dir: Option<PathBuf>) -> Result<Field> {
     let raw: RawField = toml::from_str(toml_str)?;
-    convert_raw_field(raw, config_dir)
+    convert_raw_field(raw, config_dir, None)
 }
 
 /// Parse cost from StringOrNumber
@@ -71,8 +141,12 @@ pub fn parse_cost(cost: &StringOrNumber) -> Result<Cost> {
     }
 }
 
-/// Convert raw field to validated field
-fn convert_raw_field(raw: RawField, config_dir: Option<PathBuf>) -> Result<Field> {
+/// Convert raw field to validated field, resolving "inherit" values from parent
+fn convert_raw_field(
+    raw: RawField,
+    config_dir: Option<PathBuf>,
+    parent: Option<&ParentConfig>,
+) -> Result<Field> {
     // Helper function to resolve relative paths
     let resolve_path = |path_str: &str| -> PathBuf {
         let path = Path::new(path_str);
@@ -88,10 +162,43 @@ fn convert_raw_field(raw: RawField, config_dir: Option<PathBuf>) -> Result<Field
         }
     };
 
-    // Parse model
+    // Resolve model — from field, parent, or error
+    let field_name = &raw.name;
+    let raw_model = match raw.model {
+        None => {
+            // Not specified — require parent
+            parent
+                .and_then(|p| p.model.clone())
+                .ok_or_else(|| {
+                    FieldParseError::InvalidField(format!(
+                        "Field \"{}\" has no [model]. Add [model] to field.toml or to the parent field.toml.",
+                        field_name
+                    ))
+                })?
+        }
+        Some(InheritOr::Inherit(_)) => {
+            // Explicitly inherit from parent
+            parent.and_then(|p| p.model.clone()).ok_or_else(|| {
+                FieldParseError::InvalidField(format!(
+                    "Field \"{}\" uses `model = \"inherit\"` but no parent field.toml was found.",
+                    field_name
+                ))
+            })?
+        }
+        Some(InheritOr::Value(m)) => m,
+    };
+
+    // Resolve code_mode
+    let code_mode_enabled = match raw.code_mode {
+        None => parent.and_then(|p| p.code_mode_enabled),
+        Some(InheritOr::Inherit(_)) => parent.and_then(|p| p.code_mode_enabled).or(Some(false)),
+        Some(InheritOr::Value(cm)) => Some(cm.enabled),
+    };
+
     let model = ModelSpec {
-        name: raw.model.name,
-        temperature: raw.model.temperature,
+        name: raw_model.name,
+        temperature: raw_model.temperature,
+        code_mode_enabled,
     };
 
     // Parse environment with path resolution
@@ -107,8 +214,15 @@ fn convert_raw_field(raw: RawField, config_dir: Option<PathBuf>) -> Result<Field
         Environment::default()
     };
 
+    // Resolve boundary — field, inherit from parent, or default
+    let raw_boundary_opt: Option<RawBoundary> = match raw.boundary {
+        None => None,
+        Some(InheritOr::Inherit(_)) => parent.and_then(|p| p.boundary.clone()),
+        Some(InheritOr::Value(b)) => Some(b),
+    };
+
     // Parse boundary
-    let boundary = if let Some(raw_boundary) = raw.boundary {
+    let boundary = if let Some(raw_boundary) = raw_boundary_opt {
         // Validate glob patterns
         validate_glob_patterns(&raw_boundary.allow_write)?;
 
@@ -232,10 +346,23 @@ fn convert_raw_field(raw: RawField, config_dir: Option<PathBuf>) -> Result<Field
         })
         .collect::<Result<Vec<_>>>()?;
 
+    // Resolve tool list — inherit from parent or use field's own [[tool]] entries
+    let raw_tools: Vec<RawTool> = if raw.tools.is_some() {
+        // `tools = "inherit"` — use parent's tool list
+        parent
+            .map(|p| p.tools.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .chain(raw.tool)
+            .collect()
+    } else {
+        raw.tool
+    };
+
     // Parse tools
     let mut tools: Vec<Tool> = Vec::new();
 
-    for raw_tool in raw.tool {
+    for raw_tool in raw_tools {
         match raw_tool.tool_type.as_str() {
             "python" => {
                 // Check if we need to auto-discover from Python file
@@ -868,5 +995,157 @@ root = "./workspace"
 
         // Should use relative path as-is (will be resolved from CWD at runtime)
         assert_eq!(field.environment.root, "./workspace");
+    }
+
+    #[test]
+    fn test_inherit_model_from_parent() {
+        let parent = ParentConfig {
+            model: Some(RawModel {
+                name: "anthropic/claude-sonnet-4-6".to_string(),
+                temperature: Some(0.5),
+            }),
+            tools: vec![],
+            boundary: None,
+            code_mode_enabled: None,
+        };
+
+        let toml = r#"
+            name = "child-field"
+            model = "inherit"
+
+            [prompt]
+            goal = "Do something"
+        "#;
+
+        let raw: RawField = toml::from_str(toml).unwrap();
+        let field = convert_raw_field(raw, None, Some(&parent)).unwrap();
+
+        assert_eq!(field.model.name, "anthropic/claude-sonnet-4-6");
+        assert_eq!(field.model.temperature, Some(0.5));
+    }
+
+    #[test]
+    fn test_inherit_tools_from_parent() {
+        let parent = ParentConfig {
+            model: Some(RawModel {
+                name: "anthropic/claude-sonnet-4-6".to_string(),
+                temperature: None,
+            }),
+            tools: vec![RawTool {
+                tool_type: "shell".to_string(),
+                name: Some("echo".to_string()),
+                description: Some("Echo tool".to_string()),
+                command: Some("echo hello".to_string()),
+                input_schema: None,
+                output_schema: None,
+                file: None,
+                function: None,
+                args: vec![],
+                env: std::collections::HashMap::new(),
+                url: None,
+                headers: None,
+                transport: None,
+            }],
+            boundary: None,
+            code_mode_enabled: None,
+        };
+
+        let toml = r#"
+            name = "child-field"
+            model = "inherit"
+            tools = "inherit"
+
+            [prompt]
+            goal = "Do something"
+        "#;
+
+        let raw: RawField = toml::from_str(toml).unwrap();
+        let field = convert_raw_field(raw, None, Some(&parent)).unwrap();
+
+        assert_eq!(field.tools.len(), 1);
+        assert_eq!(field.tools[0].name.as_deref(), Some("echo"));
+    }
+
+    #[test]
+    fn test_inherit_model_no_parent_errors() {
+        let toml = r#"
+            name = "child-field"
+            model = "inherit"
+
+            [prompt]
+            goal = "Do something"
+        "#;
+
+        let raw: RawField = toml::from_str(toml).unwrap();
+        let result = convert_raw_field(raw, None, None);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("inherit"),
+            "Error should mention inherit: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_no_model_no_parent_errors() {
+        let toml = r#"
+            name = "child-field"
+
+            [prompt]
+            goal = "Do something"
+        "#;
+
+        let raw: RawField = toml::from_str(toml).unwrap();
+        let result = convert_raw_field(raw, None, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_code_mode_inherited_from_parent() {
+        let parent = ParentConfig {
+            model: Some(RawModel {
+                name: "anthropic/claude-sonnet-4-6".to_string(),
+                temperature: None,
+            }),
+            tools: vec![],
+            boundary: None,
+            code_mode_enabled: Some(true),
+        };
+
+        let toml = r#"
+            name = "child-field"
+            model = "inherit"
+
+            [prompt]
+            goal = "Do something"
+        "#;
+
+        let raw: RawField = toml::from_str(toml).unwrap();
+        let field = convert_raw_field(raw, None, Some(&parent)).unwrap();
+
+        assert_eq!(field.model.code_mode_enabled, Some(true));
+    }
+
+    #[test]
+    fn test_parse_parent_config_toml() {
+        let toml = r#"
+            [model]
+            name = "anthropic/claude-sonnet-4-6"
+            temperature = 1.0
+
+            [code_mode]
+            enabled = true
+
+            [[tool]]
+            type = "shell"
+            name = "greet"
+            command = "echo hello"
+        "#;
+
+        let raw: RawParentConfig = toml::from_str(toml).unwrap();
+        assert_eq!(raw.model.unwrap().name, "anthropic/claude-sonnet-4-6");
+        assert_eq!(raw.code_mode.unwrap().enabled, true);
+        assert_eq!(raw.tool.len(), 1);
     }
 }

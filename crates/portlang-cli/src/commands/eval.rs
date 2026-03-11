@@ -1,5 +1,5 @@
 use anyhow::Result;
-use portlang_config::parse_field_from_file;
+use portlang_config::{parse_field_with_parent, parse_parent_config};
 use portlang_provider_anthropic::AnthropicProvider;
 use portlang_provider_openrouter::OpenRouterProvider;
 use portlang_runtime::{run_field, ModelProvider};
@@ -17,13 +17,35 @@ struct TaskResult {
 }
 
 /// Run all field.toml files found recursively in `directory` and report aggregate accuracy.
-pub async fn eval_command(directory: PathBuf) -> Result<()> {
-    // Collect all field.toml paths
+pub async fn eval_command(directory: PathBuf, parent_field: Option<PathBuf>) -> Result<()> {
+    // Load parent config: explicit -p flag takes priority, then directory/field.toml
+    let parent = if let Some(ref explicit) = parent_field {
+        let p = parse_parent_config(explicit)?;
+        if p.is_some() {
+            println!("Using parent config from {}", explicit.display());
+        }
+        p
+    } else {
+        let parent_path = directory.join("field.toml");
+        let p = parse_parent_config(&parent_path)?;
+        if p.is_some() {
+            println!("Using parent config from {}", parent_path.display());
+        }
+        p
+    };
+
+    // Collect field.toml paths from subdirectories only (skip the root field.toml)
+    let root_field_toml = directory.join("field.toml").canonicalize().ok();
     let mut field_paths: Vec<PathBuf> = WalkDir::new(&directory)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_name() == "field.toml")
         .map(|e| e.into_path())
+        .filter(|p| {
+            // Skip the root-level field.toml (parent template)
+            let canonical = p.canonicalize().ok();
+            canonical != root_field_toml
+        })
         .collect();
 
     field_paths.sort();
@@ -45,7 +67,7 @@ pub async fn eval_command(directory: PathBuf) -> Result<()> {
     let mut results: Vec<TaskResult> = Vec::with_capacity(total);
 
     for (idx, path) in field_paths.iter().enumerate() {
-        let field = match parse_field_from_file(path) {
+        let field = match parse_field_with_parent(path, parent.as_ref()) {
             Ok(f) => f,
             Err(e) => {
                 eprintln!(

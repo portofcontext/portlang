@@ -1,9 +1,8 @@
 name = "11_create_invoice"
 description = "Creates a draft invoice for the customer with email charlotte.souza@synapseio.com which includes the data migration product ($5000 USD) and white glove onboarding ($2500 USD). The total should be $7500 USD. The output should include detail about the line items and the total amount"
 
-[model]
-name = "anthropic/claude-sonnet-4.6"
-temperature = 0.0
+model = "inherit"
+tools = "inherit"
 
 [prompt]
 goal = """
@@ -23,13 +22,6 @@ network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"
 max_steps = 30
-
-[[tool]]
-type = "mcp"
-name = "stripe"
-command = "npx"
-args = ["-y", "@stripe/mcp"]
-env = { STRIPE_SECRET_KEY = "${STRIPE_SECRET_KEY}" }
 
 [[verifier]]
 name = "result-file-exists"

@@ -1,9 +1,8 @@
 name = "01_get_balance"
 description = "Test retrieving the stripe balance"
 
-[model]
-name = "anthropic/claude-sonnet-4.6"
-temperature = 0.0
+model = "inherit"
+tools = "inherit"
 
 [prompt]
 goal = """
@@ -26,13 +25,6 @@ network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"
 max_steps = 20
-
-[[tool]]
-type = "mcp"
-name = "stripe"
-command = "npx"
-args = ["-y", "@stripe/mcp"]
-env = { STRIPE_SECRET_KEY = "${STRIPE_SECRET_KEY}" }
 
 [[verifier]]
 name = "balance-retrieved"

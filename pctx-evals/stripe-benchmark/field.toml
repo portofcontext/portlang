@@ -1,0 +1,13 @@
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.0
+
+[code_mode]
+enabled = false
+
+[[tool]]
+type = "mcp"
+name = "stripe"
+command = "npx"
+args = ["-y", "@stripe/mcp"]
+env = { STRIPE_SECRET_KEY = "${STRIPE_SECRET_KEY}" }

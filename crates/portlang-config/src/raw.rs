@@ -1,6 +1,74 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Marker type that only deserializes from the string "inherit"
+#[derive(Debug, Clone)]
+pub struct InheritKeyword;
+
+impl<'de> Deserialize<'de> for InheritKeyword {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        if s == "inherit" {
+            Ok(InheritKeyword)
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "expected \"inherit\", got {:?}",
+                s
+            )))
+        }
+    }
+}
+
+impl Serialize for InheritKeyword {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        s.serialize_str("inherit")
+    }
+}
+
+/// Either the string "inherit" or a concrete value T
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum InheritOr<T> {
+    Inherit(InheritKeyword),
+    Value(T),
+}
+
+impl<T> InheritOr<T> {
+    pub fn is_inherit(&self) -> bool {
+        matches!(self, InheritOr::Inherit(_))
+    }
+
+    pub fn into_value(self) -> Option<T> {
+        match self {
+            InheritOr::Value(v) => Some(v),
+            InheritOr::Inherit(_) => None,
+        }
+    }
+}
+
+/// Code mode configuration (extended thinking / future settings)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawCodeMode {
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+/// Raw TOML structure for a parent field.toml (suite-level template).
+/// Intentionally lenient — ignores unknown fields so a full field.toml
+/// can also serve as a parent config without error.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RawParentConfig {
+    #[serde(default)]
+    pub model: Option<RawModel>,
+    #[serde(default)]
+    pub code_mode: Option<RawCodeMode>,
+    #[serde(default)]
+    pub tool: Vec<RawTool>,
+    #[serde(default)]
+    pub boundary: Option<RawBoundary>,
+}
+
 /// Raw TOML field structure (before validation)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -8,14 +76,24 @@ pub struct RawField {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
-    pub model: RawModel,
+    /// Either `model = "inherit"` or `[model]\nname = "..."`
+    #[serde(default)]
+    pub model: Option<InheritOr<RawModel>>,
     pub prompt: RawPrompt,
     #[serde(default)]
     pub environment: Option<RawEnvironment>,
+    /// Either `boundary = "inherit"` or `[boundary]\n...`
     #[serde(default)]
-    pub boundary: Option<RawBoundary>,
+    pub boundary: Option<InheritOr<RawBoundary>>,
+    /// `[[tool]]` array of tables
     #[serde(default)]
     pub tool: Vec<RawTool>,
+    /// `tools = "inherit"` — inherit parent's [[tool]] list
+    #[serde(default)]
+    pub tools: Option<InheritKeyword>,
+    /// Either `code_mode = "inherit"` or `[code_mode]\nenabled = true`
+    #[serde(default)]
+    pub code_mode: Option<InheritOr<RawCodeMode>>,
     #[serde(default)]
     pub verifier: Vec<RawVerifier>,
     #[serde(default, deserialize_with = "deserialize_output_schema")]

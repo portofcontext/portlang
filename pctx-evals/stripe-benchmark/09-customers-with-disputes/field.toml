@@ -1,9 +1,8 @@
 name = "09_customers_with_disputes"
 description = "Returns the customers who have had disputes along with their name, email, and the number of disputes they've had"
 
-[model]
-name = "anthropic/claude-sonnet-4.6"
-temperature = 0.0
+model = "inherit"
+tools = "inherit"
 
 [prompt]
 goal = """
@@ -23,13 +22,6 @@ network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"
 max_steps = 30
-
-[[tool]]
-type = "mcp"
-name = "stripe"
-command = "npx"
-args = ["-y", "@stripe/mcp"]
-env = { STRIPE_SECRET_KEY = "${STRIPE_SECRET_KEY}" }
 
 [[verifier]]
 name = "result-file-exists"

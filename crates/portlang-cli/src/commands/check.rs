@@ -1,13 +1,13 @@
 use anyhow::Result;
-use portlang_config::parse_field_from_file;
+use portlang_config::{parse_field_with_parent, resolve_parent_config};
 use std::path::PathBuf;
 
 /// Check a field for errors
-pub fn check_command(field_path: PathBuf) -> Result<()> {
+pub fn check_command(field_path: PathBuf, parent_field: Option<PathBuf>) -> Result<()> {
     println!("Checking field: {}", field_path.display());
 
-    // Parse the field
-    let field = parse_field_from_file(&field_path)?;
+    let parent = resolve_parent_config(&field_path, parent_field.as_ref())?;
+    let field = parse_field_with_parent(&field_path, parent.as_ref())?;
 
     println!("✓ Field '{}' is valid", field.name);
     println!("  Model: {}", field.model.name);

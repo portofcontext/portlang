@@ -1,7 +1,7 @@
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 use portlang_adapt::{format_report, AdaptationReport};
-use portlang_config::parse_field_from_file;
+use portlang_config::{parse_field_with_parent, resolve_parent_config};
 use portlang_provider_anthropic::AnthropicProvider;
 use portlang_provider_openrouter::OpenRouterProvider;
 use portlang_runtime::{run_field, ModelProvider};
@@ -12,13 +12,17 @@ use std::path::PathBuf;
 ///
 /// Reports convergence rate, token/cost distributions, tool usage patterns,
 /// and verifier signal quality across the repeated runs of the same field.
-pub async fn converge_command(field_path: PathBuf, runs: usize) -> Result<()> {
+pub async fn converge_command(
+    field_path: PathBuf,
+    runs: usize,
+    parent_field: Option<PathBuf>,
+) -> Result<()> {
     println!("Convergence analysis: {}", field_path.display());
     println!("Runs: {}", runs);
     println!();
 
-    // Parse the field
-    let field = parse_field_from_file(&field_path)?;
+    let parent = resolve_parent_config(&field_path, parent_field.as_ref())?;
+    let field = parse_field_with_parent(&field_path, parent.as_ref())?;
     println!("Field: {}", field.name);
 
     if let Some(description) = &field.description {
