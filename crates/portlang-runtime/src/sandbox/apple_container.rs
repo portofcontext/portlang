@@ -361,6 +361,66 @@ impl Sandbox for AppleContainerSandbox {
                         Ok(serde_json::to_string_pretty(&files)?)
                     }
 
+                    "bash" => {
+                        let command =
+                            input
+                                .get("command")
+                                .and_then(|v| v.as_str())
+                                .ok_or_else(|| {
+                                    SandboxError::ToolError("Missing 'command' parameter".into())
+                                })?;
+
+                        // Create a timestamp marker in the container
+                        self.exec("touch /tmp/portlang_bash_marker").await?;
+
+                        // Execute command inside the container
+                        let output = self.exec(command).await?;
+
+                        // Find files modified/created after the marker
+                        let find_output = self
+                            .exec("find /workspace -newer /tmp/portlang_bash_marker -type f | sort")
+                            .await?;
+
+                        // Enforce allow_write: remove violating files
+                        let mut violations: Vec<String> = vec![];
+                        for file in find_output.stdout.lines().filter(|l| !l.is_empty()) {
+                            let rel_path = file.strip_prefix("/workspace/").unwrap_or(file);
+                            if !self.is_write_allowed(rel_path) {
+                                let _ = self
+                                    .exec(&format!("rm -f {}", shell_escape::escape(file.into())))
+                                    .await;
+                                violations.push(rel_path.to_string());
+                            }
+                        }
+
+                        // Cleanup marker
+                        let _ = self.exec("rm -f /tmp/portlang_bash_marker").await;
+
+                        // Format result
+                        let mut result = output.stdout.clone();
+                        if !output.stderr.is_empty() {
+                            if !result.is_empty() {
+                                result.push('\n');
+                            }
+                            result.push_str("stderr: ");
+                            result.push_str(&output.stderr);
+                        }
+                        if output.exit_code != 0 {
+                            result.push_str(&format!("\nExit code: {}", output.exit_code));
+                        }
+                        if !violations.is_empty() {
+                            result.push_str("\n\nBoundary violations — the following files were removed (not in allow_write):\n");
+                            for v in &violations {
+                                result.push_str(&format!("  - {}\n", v));
+                            }
+                        }
+                        if result.trim().is_empty() {
+                            result = "(no output)".to_string();
+                        }
+
+                        Ok(result)
+                    }
+
                     // For all other tools, delegate to the registry
                     // This includes: custom tools (Python, shell), code_mode, MCP tools, etc.
                     // These run on the host, so we need to normalize /workspace/ paths to relative paths

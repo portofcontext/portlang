@@ -1,3 +1,4 @@
+pub mod bash;
 pub mod code_mode;
 pub mod glob_tool;
 pub mod handler;
@@ -7,6 +8,7 @@ pub mod registry;
 pub mod shell;
 pub mod write;
 
+pub use bash::*;
 pub use code_mode::*;
 pub use glob_tool::*;
 pub use handler::*;

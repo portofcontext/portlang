@@ -23,6 +23,16 @@ pub struct Boundary {
     /// Maximum number of agent steps before termination
     #[serde(default)]
     pub max_steps: Option<u64>,
+
+    /// Enable built-in bash tool for arbitrary shell command execution.
+    /// File writes are enforced against allow_write patterns post-execution.
+    /// Defaults to true — set to false to restrict the agent to filesystem tools only.
+    #[serde(default = "default_true")]
+    pub bash: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Boundary {
@@ -33,6 +43,7 @@ impl Default for Boundary {
             max_tokens: None,
             max_cost: None,
             max_steps: None,
+            bash: true,
         }
     }
 }

@@ -245,6 +245,7 @@ fn convert_raw_field(
             max_tokens: raw_boundary.max_tokens,
             max_cost,
             max_steps: raw_boundary.max_steps,
+            bash: raw_boundary.bash,
         }
     } else {
         Boundary::default()

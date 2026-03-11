@@ -5,7 +5,8 @@ use crate::mcp::{McpServerManager, McpToolHandler};
 use crate::provider::{ContentBlock, ModelProvider, Tool};
 use crate::sandbox::{create_sandbox, BoundaryAnalyzer, ContextTracer};
 use crate::tools::{
-    GlobHandler, PythonToolHandler, ReadHandler, ShellCommandHandler, ToolRegistry, WriteHandler,
+    BashHandler, GlobHandler, PythonToolHandler, ReadHandler, ShellCommandHandler, ToolRegistry,
+    WriteHandler,
 };
 
 use crate::verifier_runner::run_verifiers;
@@ -30,6 +31,14 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
     registry.register(Arc::new(ReadHandler));
     registry.register(Arc::new(WriteHandler));
     registry.register(Arc::new(GlobHandler));
+
+    // Register bash tool if enabled in boundary config
+    if field.boundary.bash {
+        registry.register(Arc::new(BashHandler::new(
+            field.boundary.allow_write.clone(),
+        )));
+        tracing::info!("Registered built-in bash tool");
+    }
 
     // Wrap registry in Arc early so we can share it with sandbox and continue registering tools
     let registry = Arc::new(registry);
@@ -437,6 +446,9 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                         tracing::info!("Tool '{}' returned: {}", tool, truncated_result);
                     }
 
+                    // Reset consecutive error streak on success
+                    loop_detector.record_success();
+
                     // Record result with tool ID if available
                     if let Some(id) = tool_use_id.clone() {
                         context.append_tool_result(id, result.clone(), false);
@@ -446,12 +458,18 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                     result
                 }
                 Err(e) => {
-                    let error_msg = format!("Error executing action: {}", e);
+                    let base_msg = format!("Error executing action: {}", e);
 
                     // Log tool error
                     if let Action::ToolCall { tool, .. } = &action {
                         tracing::error!("Tool '{}' failed: {}", tool, e);
                     }
+
+                    // Augment message if consecutive error threshold is reached
+                    let error_msg = match loop_detector.record_error() {
+                        Some(warning) => format!("{}\n\n{}", base_msg, warning),
+                        None => base_msg,
+                    };
 
                     // Record error with tool ID if available
                     if let Some(id) = tool_use_id.clone() {

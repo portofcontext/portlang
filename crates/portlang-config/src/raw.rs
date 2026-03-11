@@ -160,6 +160,10 @@ fn default_workspace_root() -> String {
     "./workspace".to_string()
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawBoundary {
@@ -173,6 +177,8 @@ pub struct RawBoundary {
     pub max_cost: Option<StringOrNumber>,
     #[serde(default)]
     pub max_steps: Option<u64>,
+    #[serde(default = "default_true")]
+    pub bash: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

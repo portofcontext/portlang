@@ -6,6 +6,8 @@ pub struct LoopDetector {
     history: VecDeque<ActionSignature>,
     max_history: usize,
     repeat_threshold: usize,
+    consecutive_errors: usize,
+    error_threshold: usize,
 }
 
 /// Simplified signature of an action for loop detection
@@ -26,7 +28,31 @@ impl LoopDetector {
             history: VecDeque::new(),
             max_history: 10,
             repeat_threshold: 3,
+            consecutive_errors: 0,
+            error_threshold: 3,
         }
+    }
+
+    /// Record that the most recent tool call returned an error.
+    /// Returns a warning message if the error threshold is reached.
+    pub fn record_error(&mut self) -> Option<String> {
+        self.consecutive_errors += 1;
+        if self.consecutive_errors >= self.error_threshold {
+            Some(format!(
+                "Warning: {} consecutive tool calls have failed with errors. \
+                Something in the environment may be broken or unavailable. \
+                Review the errors above and consider a fundamentally different approach, \
+                or stop if the task cannot be completed.",
+                self.consecutive_errors
+            ))
+        } else {
+            None
+        }
+    }
+
+    /// Record that the most recent tool call succeeded. Resets the error streak.
+    pub fn record_success(&mut self) {
+        self.consecutive_errors = 0;
     }
 
     /// Record an action

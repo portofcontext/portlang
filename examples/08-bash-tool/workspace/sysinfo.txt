@@ -1,0 +1,48 @@
+=====================================
+ SYSTEM INFORMATION REPORT
+=====================================
+
+-------------------------------------
+1. OS AND KERNEL VERSION (uname -a)
+-------------------------------------
+Linux portlang-9bc8bdad-b6c0-4ab9-a857-a18960f1576e 6.18.5 #1 SMP Wed Jan 28 20:00:41 UTC 2026 aarch64 GNU/Linux
+
+-------------------------------------
+2. DISK USAGE SUMMARY (df -h /)
+-------------------------------------
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vdb        504G  103M  504G   1% /
+
+-------------------------------------
+3. MEMORY INFO (/proc/meminfo)
+-------------------------------------
+MemTotal:        1059180 kB
+MemFree:          852276 kB
+MemAvailable:     971296 kB
+Buffers:           17260 kB
+Cached:           109536 kB
+SwapCached:            0 kB
+Active:            33600 kB
+Inactive:          95184 kB
+Active(anon):         20 kB
+Inactive(anon):     1980 kB
+Active(file):      33580 kB
+Inactive(file):    93204 kB
+Unevictable:           0 kB
+Mlocked:               0 kB
+SwapTotal:             0 kB
+SwapFree:              0 kB
+Dirty:               236 kB
+Writeback:             0 kB
+AnonPages:          2004 kB
+Mapped:            23308 kB
+
+-------------------------------------
+4. CURRENT DATE AND TIME (date -u)
+-------------------------------------
+Wed Mar 11 22:06:16 UTC 2026
+
+=====================================
+ END OF REPORT
+=====================================
+
