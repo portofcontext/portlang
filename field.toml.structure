@@ -32,6 +32,7 @@ network = "deny" | "allow"      # default: allow
 max_tokens = 150000             # hard ceiling on total context tokens across entire run
 max_cost = "$2.00"              # hard ceiling on total cost
 max_steps = 30                  # hard ceiling on agent steps
+bash = true | false             # enable built-in bash tool; default: true (set false to restrict to basic filesystem tools only)
 
 tools = "inherit"               # optional; inherit [[tool]] list from parent instead of defining inline
 
