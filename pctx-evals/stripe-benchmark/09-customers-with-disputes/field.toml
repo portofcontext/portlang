@@ -1,5 +1,5 @@
 name = "09_customers_with_disputes"
-description = "Returns the customers who have had disputes along with their name, email, and the number of disputes they've had"
+description = "Returns the customer IDs and dispute counts for the 2 customers who have had disputes"
 
 model = "inherit"
 tools = "inherit"
@@ -8,14 +8,9 @@ tools = "inherit"
 goal = """
 You have access to a Stripe MCP server connected to a test account.
 
-Task: Which customers have had disputes in my Stripe account? Return each customer's name, email, and dispute count as structured JSON.
+Task: Which customers have had disputes in my Stripe account? For each customer, return their customer ID and the number of disputes they have had as structured JSON.
 
-At the end of your task, before providing your final structured JSON output, save a record of all MCP tool calls you made to a file called `mcp_calls.json` in the workspace directory. The file should contain a JSON array where each element has:
-- "tool_name": the name of the MCP tool called
-- "input_raw": the exact input parameters as sent
-- "input_schema": a JSON Schema object describing the shape of the input
-- "output_raw": the exact output as received
-- "output_schema": a JSON Schema object describing the shape of the output
+Hint: disputes contain a charge ID; fetching the charge reveals the customer ID.
 """
 
 [environment]
@@ -23,11 +18,10 @@ root = "./workspace"
 code_mode_enabled = "inherit"
 
 [boundary]
-allow_write = ["mcp_calls.json"]
 network = "allow"
 max_tokens = 150000
-max_cost = "$5.00"
-max_steps = 50
+max_cost = "$3.00"
+max_steps = 30
 output_schema = """
 {
   "type": "object",
@@ -38,10 +32,9 @@ output_schema = """
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["name", "email", "dispute_count"],
+        "required": ["customer_id", "dispute_count"],
         "properties": {
-          "name":          { "type": "string" },
-          "email":         { "type": "string" },
+          "customer_id":   { "type": "string" },
           "dispute_count": { "type": "integer", "minimum": 1 }
         }
       }
@@ -49,3 +42,10 @@ output_schema = """
   }
 }
 """
+
+[[verifier]]
+name = "correct-dispute-customers"
+type = "json"
+schema = '{"properties": {"customers": {"type": "array", "minItems": 2, "maxItems": 2, "contains": {"properties": {"customer_id": {"const": "cus_U7JMk0O5Z1x4jK"}, "dispute_count": {"const": 2}}}}}}'
+trigger = "on_stop"
+description = "Must return exactly 2 customers; one must be cus_U7JMk0O5Z1x4jK with 2 disputes"

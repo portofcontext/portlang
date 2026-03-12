@@ -170,14 +170,15 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
             for def in tool_definitions {
                 let tool_name = def.name.clone();
                 let registry_clone = registry.clone();
+                let working_dir = env_context.working_directory.clone();
                 let callback: CodeModeCallback =
                     Arc::new(move |args: Option<serde_json::Value>| {
                         let registry = registry_clone.clone();
                         let name = tool_name.clone();
+                        let root = working_dir.clone();
                         Box::pin(async move {
-                            let root = std::path::Path::new("/workspace");
                             let input_value = args.unwrap_or(serde_json::json!({}));
-                            match registry.execute(&name, root, input_value).await {
+                            match registry.execute(&name, &root, input_value).await {
                                 Ok(result_str) => {
                                     // Try to parse result as JSON, fallback to string
                                     match serde_json::from_str(&result_str) {
@@ -262,15 +263,18 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
             prompt.push_str("```typescript\n");
             prompt.push_str("async function run() {\n");
             prompt.push_str("    // Call available functions using Namespace.functionName()\n");
-            prompt.push_str("    const files = await Tools.glob({ pattern: \"**/*.ts\" });\n");
-            prompt.push_str("    const content = await Tools.read({ path: files[0] });\n");
-            prompt.push_str("    return { files, content };\n");
+            prompt.push_str(
+                "    const results = await Namespace.search({ pattern: \"**/*.ts\" });\n",
+            );
+            prompt.push_str("    const content = await Namespace.read({ path: files[0] });\n");
+            prompt.push_str("    return { results, content };\n");
             prompt.push_str("}\n");
             prompt.push_str("```\n\n");
 
             prompt.push_str("**Key Rules:**\n");
             prompt.push_str("- MUST define `async function run()` - do not call it yourself\n");
             prompt.push_str("- Batch multiple operations in one code_mode call instead of calling tools individually\n");
+            prompt.push_str("- Do NOT write comments\n");
             prompt.push_str("- Function results are JavaScript objects - access properties directly (do NOT use JSON.parse)\n");
             prompt.push_str("- Only registered SDK functions are available - no fetch(), fs, or other Deno/Node APIs\n");
             prompt.push_str("- Filter/transform large data IN YOUR CODE before returning to minimize token usage\n");
@@ -292,11 +296,20 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
                 .find(|d| d.name == "code_mode")
                 .ok_or_else(|| anyhow::anyhow!("code_mode tool not found in registry"))?;
 
-            let tools = vec![Tool {
+            let mut tools = vec![Tool {
                 name: code_mode_def.name,
                 description: Some(code_mode_def.description),
                 input_schema: code_mode_def.input_schema,
             }];
+
+            // Add submit_output tool if structured output is required
+            if let Some(ref schema) = field.boundary.output_schema {
+                tools.push(Tool {
+                    name: "submit_output".to_string(),
+                    description: Some("Submit your final structured output. Call this when you're ready to finish with your JSON result.".to_string()),
+                    input_schema: schema.clone(),
+                });
+            }
 
             (tools, prompt)
         }
@@ -395,6 +408,9 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
 
     let mut step_number = 0;
 
+    // Set up Ctrl+C handler once for the duration of the run
+    let mut ctrl_c = std::pin::pin!(tokio::signal::ctrl_c());
+
     loop {
         step_number += 1;
         tracing::info!("Starting step {}", step_number);
@@ -417,13 +433,21 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
 
         // Step 2: Invoke policy with current context
         tracing::info!("Calling model API...");
-        let (action, usage) = provider
-            .complete(
+        let (action, usage) = tokio::select! {
+            result = provider.complete(
                 context.messages(),
                 &tools,
                 Some(system_prompt_text.as_str()),
-            )
-            .await?;
+            ) => result?,
+            _ = &mut ctrl_c => {
+                tracing::info!("Ctrl+C received — saving partial trajectory ({} steps)", step_number - 1);
+                trajectory.finish(RunOutcome::Interrupted { steps_completed: step_number - 1 });
+                if !mcp_servers.is_empty() {
+                    let _ = mcp_manager.shutdown_all().await;
+                }
+                return Ok(trajectory);
+            }
+        };
         tracing::info!("Model API returned, processing response...");
 
         // Calculate cost with proper input/output token breakdown

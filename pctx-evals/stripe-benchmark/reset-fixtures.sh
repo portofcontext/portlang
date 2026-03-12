@@ -172,6 +172,9 @@ done < <(jq -c '.[]' "$TMPDIR/coupons.json")
 echo ""
 echo "Deleted $deleted_count coupons"
 
+# Re-fetch coupons after deletions for accurate final verification
+coupons=$(fetch_all "coupons")
+
 # Delete extra customers (if any)
 echo ""
 echo "==================================================================="
@@ -191,6 +194,49 @@ else
     echo "WARNING: Found $customer_count customers, expected $expected_customer_count"
     echo "Missing customers! You may need to reload fixtures."
 fi
+
+# Archive excess prices per active product (e.g. agent-created duplicate prices)
+echo ""
+echo "==================================================================="
+echo "  STEP 4: Archiving excess prices per active product"
+echo "==================================================================="
+echo ""
+
+active_products_step4=$(fetch_all "products" "&active=true")
+active_prices_step4=$(fetch_all "prices" "&active=true")
+
+excess_price_count=0
+while IFS= read -r product_line; do
+    product_id=$(echo "$product_line" | jq -r '.id')
+    product_name=$(echo "$product_line" | jq -r '.name')
+
+    # Expected price count per product name (from fixtures.json)
+    expected=1
+    if [[ "$product_name" == "Pro Plan" ]] || [[ "$product_name" == "Starter Plan" ]] || [[ "$product_name" == "Business Plan" ]]; then
+        expected=2
+    elif [[ "$product_name" == "99.99% Uptime SLA" ]] || [[ "$product_name" == "Audit Log & Data Export" ]] || [[ "$product_name" == "Sandbox Environment" ]]; then
+        expected=0
+    fi
+
+    product_prices=$(echo "$active_prices_step4" | jq -c "[.[] | select(.product == \"$product_id\")] | sort_by(.created)")
+    price_count=$(echo "$product_prices" | jq 'length')
+
+    if [ "$price_count" -gt "$expected" ]; then
+        to_archive=$((price_count - expected))
+        echo "  Product '$product_name' has $price_count prices (expected $expected) — archiving $to_archive newest"
+        echo "$product_prices" | jq -c ".[-${to_archive}:][]" | while IFS= read -r price_line; do
+            price_id=$(echo "$price_line" | jq -r '.id')
+            echo "    Archiving $price_id"
+            curl -s -X POST "https://api.stripe.com/v1/prices/$price_id" \
+                -H "Authorization: Bearer $STRIPE_KEY" \
+                -d "active=false" > /dev/null
+        done
+        excess_price_count=$((excess_price_count + to_archive))
+    fi
+done < <(echo "$active_products_step4" | jq -c '.[]')
+
+echo ""
+echo "Archived $excess_price_count excess prices"
 
 # Verify final state
 echo ""

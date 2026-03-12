@@ -16,7 +16,6 @@ root = "./workspace"
 code_mode_enabled = true
 
 [boundary]
-allow_write = ["mcp_calls.json"]
 network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"

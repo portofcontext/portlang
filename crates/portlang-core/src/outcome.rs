@@ -41,6 +41,12 @@ pub enum RunOutcome {
         /// Error message
         message: String,
     },
+
+    /// Run was interrupted by the user (e.g. Ctrl+C)
+    Interrupted {
+        /// Number of steps completed before interruption
+        steps_completed: usize,
+    },
 }
 
 impl RunOutcome {
@@ -67,6 +73,9 @@ impl RunOutcome {
             }
             RunOutcome::Error { message } => {
                 format!("Error: {}", message)
+            }
+            RunOutcome::Interrupted { steps_completed } => {
+                format!("Interrupted after {} step(s)", steps_completed)
             }
         }
     }

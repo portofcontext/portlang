@@ -34,3 +34,6 @@ dirs = "6.0"
 
 # Optional: Code Mode support
 pctx_code_mode = { git = "https://github.com/portofcontext/pctx", branch = "ts-sidecar", optional = true }
+
+[dev-dependencies]
+tempfile = "3.27.0"
