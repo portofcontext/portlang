@@ -3,7 +3,7 @@ name = "anthropic/claude-sonnet-4.6"
 temperature = 0.0
 
 [code_mode]
-enabled = false
+enabled = true
 
 [[tool]]
 type = "mcp"

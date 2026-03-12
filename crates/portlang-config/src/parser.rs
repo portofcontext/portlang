@@ -188,30 +188,48 @@ fn convert_raw_field(
         Some(InheritOr::Value(m)) => m,
     };
 
-    // Resolve code_mode
-    let code_mode_enabled = match raw.code_mode {
-        None => parent.and_then(|p| p.code_mode_enabled),
-        Some(InheritOr::Inherit(_)) => parent.and_then(|p| p.code_mode_enabled).or(Some(false)),
-        Some(InheritOr::Value(cm)) => Some(cm.enabled),
-    };
-
     let model = ModelSpec {
         name: raw_model.name,
         temperature: raw_model.temperature,
-        code_mode_enabled,
     };
 
     // Parse environment with path resolution
     let environment = if let Some(raw_env) = raw.environment {
         let resolved = resolve_path(&raw_env.root);
+
+        // Resolve code_mode_enabled: prioritize environment field, fall back to [code_mode] section for backwards compatibility
+        let code_mode_enabled = match raw_env.code_mode_enabled {
+            Some(InheritOr::Value(v)) => Some(v),
+            Some(InheritOr::Inherit(_)) => parent.and_then(|p| p.code_mode_enabled),
+            None => raw
+                .code_mode
+                .as_ref()
+                .and_then(|cm| match cm {
+                    InheritOr::Inherit(_) => parent.and_then(|p| p.code_mode_enabled),
+                    InheritOr::Value(cm) => Some(cm.enabled),
+                })
+                .or_else(|| parent.and_then(|p| p.code_mode_enabled)),
+        };
+
         Environment {
             root: resolved.to_string_lossy().to_string(),
             packages: raw_env.packages,
             dockerfile: raw_env.dockerfile,
             image: raw_env.image,
+            code_mode_enabled,
         }
     } else {
-        Environment::default()
+        // No environment specified, use defaults
+        let code_mode_enabled = match raw.code_mode {
+            None => parent.and_then(|p| p.code_mode_enabled),
+            Some(InheritOr::Inherit(_)) => parent.and_then(|p| p.code_mode_enabled),
+            Some(InheritOr::Value(cm)) => Some(cm.enabled),
+        };
+
+        Environment {
+            code_mode_enabled,
+            ..Environment::default()
+        }
     };
 
     // Resolve boundary — field, inherit from parent, or default
@@ -624,6 +642,7 @@ fn convert_raw_field(
         packages: final_packages,
         dockerfile: environment.dockerfile,
         image: environment.image,
+        code_mode_enabled: environment.code_mode_enabled,
     };
 
     Ok(Field {
@@ -1105,7 +1124,7 @@ root = "./workspace"
         let raw: RawField = toml::from_str(toml).unwrap();
         let field = convert_raw_field(raw, None, Some(&parent)).unwrap();
 
-        assert_eq!(field.model.code_mode_enabled, Some(true));
+        assert_eq!(field.environment.code_mode_enabled, Some(true));
     }
 
     #[test]

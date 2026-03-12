@@ -20,6 +20,7 @@ At the end of your task, before providing your final structured JSON output, sav
 
 [environment]
 root = "./workspace"
+code_mode_enabled = "inherit"
 
 [boundary]
 allow_write = ["mcp_calls.json"]

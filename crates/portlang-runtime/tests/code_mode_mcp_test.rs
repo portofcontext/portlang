@@ -39,7 +39,7 @@ mod tests {
 
         handler
             .register_tool(
-                "MCP".to_string(),
+                "filesystem".to_string(),
                 "read_file".to_string(),
                 Some("Read a file".to_string()),
                 serde_json::json!({
@@ -53,11 +53,11 @@ mod tests {
             )
             .unwrap();
 
-        // Execute code that uses the Mcp namespace (note: capitalized, not MCP)
+        // Execute code that uses the MCP server namespace (filesystem)
         // Function names are camelCase (readFile, not read_file)
         let code = r#"
             async function run() {
-                const result = await Mcp.readFile({ path: "/test.txt" });
+                const result = await Filesystem.readFile({ path: "/test.txt" });
                 return result;
             }
         "#;

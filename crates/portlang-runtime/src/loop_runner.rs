@@ -9,6 +9,9 @@ use crate::tools::{
     WriteHandler,
 };
 
+#[cfg(feature = "code-mode")]
+use crate::tools::{CodeModeCallback, CodeModeHandler};
+
 use crate::verifier_runner::run_verifiers;
 use portlang_core::*;
 use std::sync::Arc;
@@ -19,12 +22,22 @@ fn generate_tool_id() -> String {
     format!("toolu_{}", Uuid::new_v4().to_string().replace("-", ""))
 }
 
-/// Run a field to completion
-pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::Result<Trajectory> {
-    tracing::debug!("Starting run_field for field: {}", field.name);
+/// What the agent sees
+pub struct AgentView {
+    /// Tools available to the agent
+    pub tools: Vec<Tool>,
+    /// System prompt
+    pub system_prompt: String,
+    /// Environment context
+    pub env_context: EnvironmentContext,
+    /// Sandbox (needed internally for execution)
+    pub(crate) sandbox: Box<dyn crate::sandbox::Sandbox>,
+}
 
-    // Create trajectory
-    let mut trajectory = Trajectory::new(field.name.clone());
+/// Prepare what the agent will see for a field
+/// This handles all tool registration and prompt building
+pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
+    tracing::debug!("Preparing agent view for field: {}", field.name);
 
     // Create tool registry with built-in tools
     let registry = ToolRegistry::new();
@@ -139,6 +152,221 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
     // if any command is missing (exit 127 = command not found).
     preflight_verifiers(sandbox.as_ref(), &field.verifiers).await?;
 
+    // Check if code mode is enabled
+    let code_mode_enabled = field.environment.code_mode_enabled.unwrap_or(false);
+
+    let (tools, system_prompt) = if code_mode_enabled {
+        #[cfg(feature = "code-mode")]
+        {
+            tracing::info!("Code mode enabled - wrapping tools");
+
+            // Create code mode handler
+            let mut code_mode_handler = CodeModeHandler::new();
+
+            // Get all built-in and custom tool definitions
+            let tool_definitions = registry.tool_definitions();
+
+            // Register built-in and custom tools under "Tools" namespace
+            for def in tool_definitions {
+                let tool_name = def.name.clone();
+                let registry_clone = registry.clone();
+                let callback: CodeModeCallback =
+                    Arc::new(move |args: Option<serde_json::Value>| {
+                        let registry = registry_clone.clone();
+                        let name = tool_name.clone();
+                        Box::pin(async move {
+                            let root = std::path::Path::new("/workspace");
+                            let input_value = args.unwrap_or(serde_json::json!({}));
+                            match registry.execute(&name, root, input_value).await {
+                                Ok(result_str) => {
+                                    // Try to parse result as JSON, fallback to string
+                                    match serde_json::from_str(&result_str) {
+                                        Ok(json) => Ok(json),
+                                        Err(_) => Ok(serde_json::Value::String(result_str)),
+                                    }
+                                }
+                                Err(e) => Err(format!("Tool error: {}", e)),
+                            }
+                        })
+                    });
+                code_mode_handler
+                    .register_tool(
+                        "Tools".to_string(),
+                        def.name.clone(),
+                        Some(def.description.clone()),
+                        def.input_schema.clone(),
+                        callback,
+                    )
+                    .map_err(|e| anyhow::anyhow!("Failed to register tool: {}", e))?;
+                tracing::debug!("Registered {} in Tools namespace for code mode", def.name);
+            }
+
+            // Register MCP tools under their server name namespaces
+            if !mcp_servers.is_empty() {
+                let mcp_tools = mcp_manager.discover_tools().await?;
+                for (server_name, tool_def) in mcp_tools {
+                    let client = mcp_manager
+                        .get_client(&server_name)
+                        .ok_or_else(|| anyhow::anyhow!("MCP server not found: {}", server_name))?;
+
+                    let tool_name = tool_def.name.clone();
+                    let tool_description = tool_def.description.clone();
+                    let input_schema = tool_def.input_schema.clone();
+
+                    let callback: CodeModeCallback =
+                        Arc::new(move |args: Option<serde_json::Value>| {
+                            let client = client.clone();
+                            let name = tool_name.clone();
+                            Box::pin(async move {
+                                let input_value = args.unwrap_or(serde_json::json!({}));
+                                let client_guard = client.read().await;
+                                client_guard
+                                    .call_tool(&name, input_value)
+                                    .await
+                                    .map_err(|e| format!("MCP tool error: {}", e))
+                            })
+                        });
+
+                    code_mode_handler
+                        .register_tool(
+                            server_name.clone(),
+                            tool_def.name.clone(),
+                            tool_description,
+                            input_schema,
+                            callback,
+                        )
+                        .map_err(|e| anyhow::anyhow!("Failed to register MCP tool: {}", e))?;
+                    tracing::debug!(
+                        "Registered {} in {} namespace for code mode",
+                        tool_def.name,
+                        server_name
+                    );
+                }
+            }
+
+            // Get TypeScript definitions for system prompt
+            let typescript_defs = code_mode_handler.get_typescript_definitions();
+
+            // Build system prompt with TypeScript catalog
+            let mut prompt = build_system_prompt(field, &env_context);
+            prompt.push_str("\n\n# Code Mode\n\n");
+            prompt.push_str(
+                "You have access to a TypeScript execution environment via the `code_mode` tool. ",
+            );
+            prompt.push_str(
+                "Use this to batch multiple operations efficiently and reduce token usage.\n\n",
+            );
+
+            prompt.push_str("## How to Use Code Mode\n\n");
+            prompt.push_str("Your code must define an async `run()` function that will be called automatically:\n\n");
+            prompt.push_str("```typescript\n");
+            prompt.push_str("async function run() {\n");
+            prompt.push_str("    // Call available functions using Namespace.functionName()\n");
+            prompt.push_str("    const files = await Tools.glob({ pattern: \"**/*.ts\" });\n");
+            prompt.push_str("    const content = await Tools.read({ path: files[0] });\n");
+            prompt.push_str("    return { files, content };\n");
+            prompt.push_str("}\n");
+            prompt.push_str("```\n\n");
+
+            prompt.push_str("**Key Rules:**\n");
+            prompt.push_str("- MUST define `async function run()` - do not call it yourself\n");
+            prompt.push_str("- Batch multiple operations in one code_mode call instead of calling tools individually\n");
+            prompt.push_str("- Function results are JavaScript objects - access properties directly (do NOT use JSON.parse)\n");
+            prompt.push_str("- Only registered SDK functions are available - no fetch(), fs, or other Deno/Node APIs\n");
+            prompt.push_str("- Filter/transform large data IN YOUR CODE before returning to minimize token usage\n");
+            prompt.push_str("- Use console.log() for debugging - it appears in the result\n\n");
+
+            prompt.push_str("## Available Functions\n\n");
+            prompt.push_str("```typescript\n");
+            prompt.push_str(&typescript_defs);
+            prompt.push_str("\n```\n");
+
+            // Register the code_mode handler in the registry
+            registry.register(Arc::new(code_mode_handler));
+
+            // Return only the code_mode tool using ToolHandler trait
+            // Get it from the registry to ensure consistency
+            let code_mode_def = registry
+                .tool_definitions()
+                .into_iter()
+                .find(|d| d.name == "code_mode")
+                .ok_or_else(|| anyhow::anyhow!("code_mode tool not found in registry"))?;
+
+            let tools = vec![Tool {
+                name: code_mode_def.name,
+                description: Some(code_mode_def.description),
+                input_schema: code_mode_def.input_schema,
+            }];
+
+            (tools, prompt)
+        }
+
+        #[cfg(not(feature = "code-mode"))]
+        {
+            anyhow::bail!(
+                "Code mode is not enabled in this build. Rebuild with --features code-mode"
+            );
+        }
+    } else {
+        // Standard mode - expose all tools directly
+        let tool_definitions = registry.tool_definitions();
+        let mut tools: Vec<Tool> = tool_definitions
+            .into_iter()
+            .map(|def| Tool {
+                name: def.name,
+                description: Some(def.description),
+                input_schema: def.input_schema,
+            })
+            .collect();
+
+        // Add submit_output tool if structured output is required
+        if let Some(ref schema) = field.boundary.output_schema {
+            tools.push(Tool {
+                name: "submit_output".to_string(),
+                description: Some("Submit your final structured output. Call this when you're ready to finish with your JSON result.".to_string()),
+                input_schema: schema.clone(),
+            });
+        }
+
+        let system_prompt = build_system_prompt(field, &env_context);
+
+        (tools, system_prompt)
+    };
+
+    Ok(AgentView {
+        tools,
+        system_prompt,
+        env_context,
+        sandbox,
+    })
+}
+
+/// Run a field configuration
+pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::Result<Trajectory> {
+    // Prepare what the agent sees
+    let agent_view = prepare_agent_view(field).await?;
+    let AgentView {
+        tools,
+        system_prompt: system_prompt_text,
+        env_context: _,
+        sandbox,
+    } = agent_view;
+
+    // Build McpServer list for cleanup later
+    let mcp_servers: Vec<McpServer> = field
+        .tools
+        .iter()
+        .filter(|t| t.tool_type == "mcp")
+        .filter_map(|t| {
+            let name = t.name.clone()?;
+            let transport = t.transport.clone()?;
+            Some(McpServer { name, transport })
+        })
+        .collect();
+
+    // Create MCP manager for cleanup
+    let mut mcp_manager = McpServerManager::new();
+
     // Create context window
     let mut context = ContextWindow::new(&field.prompt.goal);
 
@@ -148,40 +376,10 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
     // Create fixup tracker for structured output correction
     let mut fixup_tracker = crate::structured_output::FixupTracker::new();
 
-    // Tool definitions from registry
-    let tool_definitions = registry.tool_definitions();
-    let mut tools: Vec<Tool> = tool_definitions
-        .into_iter()
-        .map(|def| Tool {
-            name: def.name,
-            description: Some(def.description),
-            input_schema: def.input_schema,
-        })
-        .collect();
-
-    // Add submit_output tool if structured output is required
-    if field.boundary.output_schema.is_some() {
-        tools.push(Tool {
-            name: "submit_output".to_string(),
-            description: Some("Submit your final structured output. Call this when you're ready to finish with your JSON result.".to_string()),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "output": {
-                        "type": "object",
-                        "description": "Your structured output matching the required schema"
-                    }
-                },
-                "required": ["output"]
-            }),
-        });
-    }
-
-    // Capture context for trajectory
-    let system_prompt_text = build_system_prompt(field, &env_context);
+    // Create trajectory
     let tools_json = serde_json::to_string_pretty(&tools).unwrap_or_else(|_| "[]".to_string());
     let env_type = "local".to_string();
-
+    let mut trajectory = Trajectory::new(field.name.clone());
     trajectory = trajectory.with_context(
         field.prompt.goal.clone(),
         provider.model_name().to_string(),
@@ -219,9 +417,12 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
 
         // Step 2: Invoke policy with current context
         tracing::info!("Calling model API...");
-        let system_prompt = build_system_prompt(field, &env_context);
         let (action, usage) = provider
-            .complete(context.messages(), &tools, Some(system_prompt.as_str()))
+            .complete(
+                context.messages(),
+                &tools,
+                Some(system_prompt_text.as_str()),
+            )
             .await?;
         tracing::info!("Model API returned, processing response...");
 
@@ -321,125 +522,59 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
             // Special handling for submit_output tool
             if let Action::ToolCall { tool, input, .. } = &action {
                 if tool.as_str() == "submit_output" {
-                    // Extract and validate the output
                     if let Some(ref schema) = field.boundary.output_schema {
-                        match input.get("output") {
-                            Some(output_value) => {
-                                // Coerce output toward schema (schema-aligned correction)
-                                match crate::structured_output::coerce(output_value, schema) {
-                                    Err(e) => {
-                                        // Coercion failed — inject fixup message and let agent retry
-                                        let raw = serde_json::to_string_pretty(output_value)
-                                            .unwrap_or_default();
-                                        let feedback = match fixup_tracker.next_message(&raw, schema, &e) {
-                                            Some(msg) => msg,
-                                            None => format!(
-                                                "Output validation failed after {} fixup attempts. {}",
-                                                crate::structured_output::MAX_FIXUP_ATTEMPTS, e
-                                            ),
-                                        };
-                                        tracing::error!("submit_output coercion failed: {}", e);
-                                        if let Some(id) = tool_use_id.clone() {
-                                            context.append_tool_result(id, feedback.clone(), true);
-                                        }
-                                        let step = TrajectoryStep::new(
-                                            step_number,
-                                            action.clone(),
-                                            feedback,
-                                            false,
-                                            cost,
-                                            usage.total_tokens,
-                                        )
-                                        .with_token_breakdown(
-                                            usage.input_tokens,
-                                            usage.output_tokens,
-                                        );
-                                        trajectory.add_step(step);
-                                        continue;
-                                    }
-                                    Ok(coerced) => {
-                                        let output_value = &coerced.value;
-                                        if !coerced.corrections.is_empty() {
-                                            tracing::info!(
-                                                "submit_output: applied {} correction(s), score={}",
-                                                coerced.corrections.len(),
-                                                coerced.score
-                                            );
-                                        }
-
-                                        // Store in trajectory
-                                        trajectory.set_structured_output(output_value.clone());
-
-                                        // Return success to agent and trigger termination
-                                        let success_msg =
-                                            "Output submitted successfully. Validation passed."
-                                                .to_string();
-                                        if let Some(id) = tool_use_id.clone() {
-                                            context.append_tool_result(
-                                                id,
-                                                success_msg.clone(),
-                                                false,
-                                            );
-                                        }
-
-                                        let step = TrajectoryStep::new(
-                                            step_number,
-                                            action.clone(),
-                                            success_msg.clone(),
-                                            false,
-                                            cost,
-                                            usage.total_tokens,
-                                        )
-                                        .with_token_breakdown(
-                                            usage.input_tokens,
-                                            usage.output_tokens,
-                                        );
-                                        trajectory.add_step(step);
-
-                                        // Run verifiers
-                                        let verifier_results = run_verifiers(
-                                            sandbox.as_ref(),
-                                            &field.verifiers,
-                                            &action,
-                                            true,
-                                            Some(output_value),
-                                        )
-                                        .await;
-                                        let all_passed = verifier_results.iter().all(|r| r.passed);
-
-                                        if verifier_results.is_empty() || all_passed {
-                                            trajectory.finish(RunOutcome::Converged {
-                                                message:
-                                                    "Structured output submitted and validated"
-                                                        .to_string(),
-                                            });
-                                        } else if let Some(failed) =
-                                            verifier_results.iter().find(|r| !r.passed)
-                                        {
-                                            trajectory.finish(RunOutcome::VerifierFailed {
-                                                verifier: failed.name.clone(),
-                                                message: failed.stderr.clone(),
-                                            });
-                                        }
-
-                                        if !mcp_servers.is_empty() {
-                                            let _ = mcp_manager.shutdown_all().await;
-                                        }
-                                        return Ok(trajectory);
-                                    } // Ok(coerced)
-                                } // match coerce
-                            }
-                            None => {
-                                let error_msg =
-                                    "submit_output requires an 'output' parameter".to_string();
+                        match crate::structured_output::coerce(input, schema) {
+                            Err(e) => {
+                                // Coercion failed — inject fixup message and let agent retry
+                                let raw = serde_json::to_string_pretty(input).unwrap_or_default();
+                                let feedback = match fixup_tracker.next_message(&raw, schema, &e) {
+                                    Some(msg) => msg,
+                                    None => format!(
+                                        "Output validation failed after {} fixup attempts. {}",
+                                        crate::structured_output::MAX_FIXUP_ATTEMPTS,
+                                        e
+                                    ),
+                                };
+                                tracing::error!("submit_output coercion failed: {}", e);
                                 if let Some(id) = tool_use_id.clone() {
-                                    context.append_tool_result(id, error_msg.clone(), true);
+                                    context.append_tool_result(id, feedback.clone(), true);
+                                }
+                                let step = TrajectoryStep::new(
+                                    step_number,
+                                    action.clone(),
+                                    feedback,
+                                    false,
+                                    cost,
+                                    usage.total_tokens,
+                                )
+                                .with_token_breakdown(usage.input_tokens, usage.output_tokens);
+                                trajectory.add_step(step);
+                                continue;
+                            }
+                            Ok(coerced) => {
+                                let output_value = &coerced.value;
+                                if !coerced.corrections.is_empty() {
+                                    tracing::info!(
+                                        "submit_output: applied {} correction(s), score={}",
+                                        coerced.corrections.len(),
+                                        coerced.score
+                                    );
+                                }
+
+                                // Store in trajectory
+                                trajectory.set_structured_output(output_value.clone());
+
+                                // Return success to agent and trigger termination
+                                let success_msg =
+                                    "Output submitted successfully. Validation passed.".to_string();
+                                if let Some(id) = tool_use_id.clone() {
+                                    context.append_tool_result(id, success_msg.clone(), false);
                                 }
 
                                 let step = TrajectoryStep::new(
                                     step_number,
                                     action.clone(),
-                                    error_msg,
+                                    success_msg.clone(),
                                     false,
                                     cost,
                                     usage.total_tokens,
@@ -447,7 +582,35 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                                 .with_token_breakdown(usage.input_tokens, usage.output_tokens);
                                 trajectory.add_step(step);
 
-                                continue;
+                                // Run verifiers
+                                let verifier_results = run_verifiers(
+                                    sandbox.as_ref(),
+                                    &field.verifiers,
+                                    &action,
+                                    true,
+                                    Some(output_value),
+                                )
+                                .await;
+                                let all_passed = verifier_results.iter().all(|r| r.passed);
+
+                                if verifier_results.is_empty() || all_passed {
+                                    trajectory.finish(RunOutcome::Converged {
+                                        message: "Structured output submitted and validated"
+                                            .to_string(),
+                                    });
+                                } else if let Some(failed) =
+                                    verifier_results.iter().find(|r| !r.passed)
+                                {
+                                    trajectory.finish(RunOutcome::VerifierFailed {
+                                        verifier: failed.name.clone(),
+                                        message: failed.stderr.clone(),
+                                    });
+                                }
+
+                                if !mcp_servers.is_empty() {
+                                    let _ = mcp_manager.shutdown_all().await;
+                                }
+                                return Ok(trajectory);
                             }
                         }
                     }
@@ -744,7 +907,7 @@ fn build_system_prompt(field: &Field, env_context: &EnvironmentContext) -> Strin
         output_doc
             .push_str(&serde_json::to_string_pretty(schema).unwrap_or_else(|_| "{}".to_string()));
         output_doc.push_str("\n```\n\n");
-        output_doc.push_str("When you're ready to submit your results, use the `submit_output` tool with your JSON object.\n");
+        output_doc.push_str("When you're ready to submit your results, call the `submit_output` tool passing your JSON fields directly as the tool arguments.\n");
         output_doc
             .push_str("The system will validate your output and store it in the trajectory.\n");
 

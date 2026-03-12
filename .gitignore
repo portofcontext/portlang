@@ -7,3 +7,5 @@ skills-lock.json
 .agents/pctx-evals/*/workspace/
 
 __pycache__
+
+.DS_STORE

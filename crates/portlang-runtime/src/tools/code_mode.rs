@@ -4,7 +4,9 @@
 //! Deno runtime, dramatically reducing token usage for data-heavy operations.
 
 #[cfg(feature = "code-mode")]
-use pctx_code_mode::{model::CallbackConfig, CallbackRegistry, CodeMode};
+use pctx_code_mode::{
+    config::ToolDisclosure, model::CallbackConfig, registry::PctxRegistry, CodeMode,
+};
 
 use crate::sandbox::error::{Result, SandboxError};
 use crate::tools::handler::ToolHandler;
@@ -37,7 +39,7 @@ pub type CodeModeCallback = Arc<
 #[cfg(feature = "code-mode")]
 pub struct CodeModeHandler {
     code_mode: CodeMode,
-    callback_registry: CallbackRegistry,
+    callback_registry: PctxRegistry,
 }
 
 #[cfg(feature = "code-mode")]
@@ -46,7 +48,7 @@ impl CodeModeHandler {
     pub fn new() -> Self {
         Self {
             code_mode: CodeMode::default(),
-            callback_registry: CallbackRegistry::default(),
+            callback_registry: PctxRegistry::default(),
         }
     }
 
@@ -68,7 +70,7 @@ impl CodeModeHandler {
     ) -> Result<()> {
         // Register the callback metadata with CodeMode
         let callback_config = CallbackConfig {
-            namespace: namespace.clone(),
+            namespace: Some(namespace.clone()),
             name: name.clone(),
             description,
             input_schema: Some(input_schema),
@@ -79,16 +81,22 @@ impl CodeModeHandler {
             SandboxError::ToolError(format!("Failed to add callback config: {}", e))
         })?;
 
-        // Register the callback implementation
-        let callback_id = format!("{}.{}", namespace, name);
+        // Register the callback implementation using the callback_id method
+        let callback_id = callback_config.id();
         self.callback_registry
-            .add(&callback_id, callback)
+            .add_callback(&callback_id, callback)
             .map_err(|e| {
                 SandboxError::ToolError(format!("Failed to add callback to registry: {}", e))
             })?;
 
         tracing::debug!("Registered Code Mode tool: {}", callback_id);
         Ok(())
+    }
+
+    /// Get the TypeScript type definitions for all registered tools
+    pub fn get_typescript_definitions(&self) -> String {
+        let list_output = self.code_mode.list_functions();
+        list_output.code
     }
 
     /// Execute TypeScript code
@@ -109,7 +117,7 @@ impl CodeModeHandler {
 
             rt.block_on(async move {
                 let output = code_mode
-                    .execute(&code, Some(callback_registry))
+                    .execute_typescript(&code, ToolDisclosure::Catalog, Some(callback_registry))
                     .await
                     .map_err(|e| {
                         SandboxError::ToolError(format!("Code Mode execution failed: {}", e))

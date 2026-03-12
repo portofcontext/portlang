@@ -140,6 +140,8 @@ pub struct RawEnvironment {
     pub dockerfile: Option<String>,
     #[serde(default)]
     pub image: Option<String>,
+    #[serde(default)]
+    pub code_mode_enabled: Option<InheritOr<bool>>,
 }
 
 fn default_workspace_root() -> String {

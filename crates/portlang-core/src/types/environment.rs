@@ -18,6 +18,10 @@ pub struct Environment {
     /// Pre-built Docker image to use instead of default
     #[serde(default)]
     pub image: Option<String>,
+
+    /// Enable Code Mode - execute TypeScript in Deno sandbox with tools as async functions
+    #[serde(default)]
+    pub code_mode_enabled: Option<bool>,
 }
 
 fn default_workspace_root() -> String {
@@ -31,6 +35,7 @@ impl Default for Environment {
             packages: vec![],
             dockerfile: None,
             image: None,
+            code_mode_enabled: None,
         }
     }
 }

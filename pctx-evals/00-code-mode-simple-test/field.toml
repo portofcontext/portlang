@@ -21,6 +21,7 @@ Stop once result.txt contains the answer.
 
 [environment]
 root = "./workspace"
+code_mode_enabled = true
 
 [boundary]
 allow_write = ["result.txt"]

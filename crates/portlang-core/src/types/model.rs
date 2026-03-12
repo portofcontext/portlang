@@ -9,10 +9,6 @@ pub struct ModelSpec {
     /// Temperature for sampling (0.0 to 1.0)
     #[serde(default = "default_temperature")]
     pub temperature: Option<f32>,
-
-    /// Code mode enabled (extended thinking / future code mode settings)
-    #[serde(default)]
-    pub code_mode_enabled: Option<bool>,
 }
 
 fn default_temperature() -> Option<f32> {
@@ -24,7 +20,6 @@ impl ModelSpec {
         Self {
             name: name.into(),
             temperature: Some(1.0),
-            code_mode_enabled: None,
         }
     }
 

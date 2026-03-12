@@ -1,0 +1,25 @@
+name = "code-mode-prompt-inspection"
+description = "Inspection test to see what the agent sees with code mode enabled"
+
+[model]
+name = "anthropic/claude-sonnet-4"
+temperature = 0.0
+
+[prompt]
+system = "Custom system prompt for testing."
+goal = "This is a test to inspect the prompt and tools"
+
+[environment]
+root = "./workspace"
+code_mode_enabled = true
+
+[boundary]
+bash = true
+allow_write = ["**/*"]
+network = "deny"
+
+[[tool]]
+type = "mcp"
+name = "filesystem"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
