@@ -413,6 +413,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                                             &field.verifiers,
                                             &action,
                                             true,
+                                            Some(output_value),
                                         )
                                         .await;
                                         let all_passed = verifier_results.iter().all(|r| r.passed);
@@ -515,8 +516,14 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
 
         // Step 5: Run triggered verifiers
         let is_stop = action.is_stop();
-        let verifier_results =
-            run_verifiers(sandbox.as_ref(), &field.verifiers, &action, is_stop).await;
+        let verifier_results = run_verifiers(
+            sandbox.as_ref(),
+            &field.verifiers,
+            &action,
+            is_stop,
+            trajectory.structured_output.as_ref(),
+        )
+        .await;
 
         // Add verifier results to context
         context.append_verifier_results(&verifier_results);

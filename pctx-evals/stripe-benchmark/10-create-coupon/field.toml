@@ -8,14 +8,13 @@ tools = "inherit"
 goal = """
 You have access to a Stripe MCP server connected to a test account.
 
-Task: First, count how many coupons exist. Then create a one-time-use 25.5% off coupon with the name "EVAL25" that applies to all products. Then count coupons again. Return the before count, the created coupon data, and the after count as structured JSON written to output.json.
+Task: First, count how many coupons exist. Then create a one-time-use 25.5% off coupon with the name "EVAL25" that applies to all products. Then count coupons again. Return the before count, the created coupon data, and the after count as structured JSON.
 """
 
 [environment]
 root = "./workspace"
 
 [boundary]
-allow_write = ["output.json"]
 network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"
@@ -44,7 +43,6 @@ output_schema = """
 [[verifier]]
 name = "coupon-created"
 type = "json"
-file = "output.json"
 schema = '{"properties": {"coupon": {"properties": {"name": {"const": "EVAL25"}, "percent_off": {"const": 25.5}, "max_redemptions": {"const": 1}}}}}'
 trigger = "on_stop"
 description = "Coupon must be named EVAL25 with 25.5% off and max_redemptions=1"

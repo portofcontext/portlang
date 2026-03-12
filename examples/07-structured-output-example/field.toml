@@ -34,3 +34,10 @@ output_schema = """
   }
 }
 """
+
+[[verifier]]
+name = "status-is-success"
+type = "json"
+schema = '{"properties": {"status": {"const": "success"}}}'
+trigger = "on_stop"
+description = "status must be success"

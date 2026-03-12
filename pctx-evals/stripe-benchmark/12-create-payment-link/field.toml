@@ -8,14 +8,13 @@ tools = "inherit"
 goal = """
 You have access to a Stripe MCP server connected to a test account.
 
-Task: Create a payment link for the Team Training Workshop product that charges $1500 USD. The link should be reusable and collect the customer's email. Return the URL and product details as structured JSON written to output.json.
+Task: Create a payment link for the Team Training Workshop product that charges $1500 USD. The link should be reusable and collect the customer's email. Return the URL and product details as structured JSON.
 """
 
 [environment]
 root = "./workspace"
 
 [boundary]
-allow_write = ["output.json"]
 network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"
@@ -35,7 +34,6 @@ output_schema = """
 [[verifier]]
 name = "correct-payment-link"
 type = "json"
-file = "output.json"
 schema = '{"properties": {"url": {"pattern": "buy\\.stripe\\.com/test_"}, "product": {"const": "Team Training Workshop"}, "amount": {"const": 150000}}}'
 trigger = "on_stop"
 description = "URL must be a Stripe test payment link, product must be Team Training Workshop, amount must be 150000 cents ($1500)"

@@ -280,12 +280,6 @@ fn convert_raw_field(
                     VerifierAlgorithm::Shell { command }
                 }
                 "levenshtein" => {
-                    let file = raw_verifier.file.ok_or_else(|| {
-                        FieldParseError::InvalidField(format!(
-                            "Verifier '{}': levenshtein verifier requires 'file'",
-                            raw_verifier.name
-                        ))
-                    })?;
                     let expected = raw_verifier.expected.ok_or_else(|| {
                         FieldParseError::InvalidField(format!(
                             "Verifier '{}': levenshtein verifier requires 'expected'",
@@ -293,30 +287,16 @@ fn convert_raw_field(
                         ))
                     })?;
                     VerifierAlgorithm::Levenshtein {
-                        file,
+                        file: raw_verifier.file,
                         expected,
                         threshold: raw_verifier.threshold.unwrap_or(1.0),
                     }
                 }
-                "json" => {
-                    let file = raw_verifier.file.ok_or_else(|| {
-                        FieldParseError::InvalidField(format!(
-                            "Verifier '{}': json verifier requires 'file'",
-                            raw_verifier.name
-                        ))
-                    })?;
-                    VerifierAlgorithm::Json {
-                        file,
-                        schema: raw_verifier.schema,
-                    }
-                }
+                "json" => VerifierAlgorithm::Json {
+                    file: raw_verifier.file,
+                    schema: raw_verifier.schema,
+                },
                 "semantic" => {
-                    let file = raw_verifier.file.ok_or_else(|| {
-                        FieldParseError::InvalidField(format!(
-                            "Verifier '{}': semantic verifier requires 'file'",
-                            raw_verifier.name
-                        ))
-                    })?;
                     let expected = raw_verifier.expected.ok_or_else(|| {
                         FieldParseError::InvalidField(format!(
                             "Verifier '{}': semantic verifier requires 'expected'",
@@ -324,7 +304,7 @@ fn convert_raw_field(
                         ))
                     })?;
                     VerifierAlgorithm::Semantic {
-                        file,
+                        file: raw_verifier.file,
                         expected,
                         threshold: raw_verifier.threshold.unwrap_or(0.8),
                         embedding_url: raw_verifier.embedding_url,

@@ -76,20 +76,20 @@ command = "..."                 # (required) shell command; exit 0 = pass, nonze
 [[verifier]]
 type = "levenshtein"            # --- normalized edit distance ---
 name = "..."                    # (required)
-file = "output.txt"             # (required) workspace-relative path to actual output file
+file = "output.txt"             # optional; workspace-relative path; omit to use structured output (output_schema)
 expected = "..."                # (required) reference string to compare against
 threshold = 0.9                 # normalized similarity [0.0–1.0] required to pass; default: 1.0
 
 [[verifier]]
 type = "json"                   # --- JSON structure validation ---
 name = "..."                    # (required)
-file = "output.json"            # (required) workspace-relative path to file to validate
+file = "output.json"            # optional; workspace-relative path; omit to use structured output (output_schema)
 schema = '{"type": "object"}'  # optional JSON Schema string; validates structure if provided
 
 [[verifier]]
 type = "semantic"               # --- cosine similarity via embeddings ---
 name = "..."                    # (required)
-file = "output.txt"             # (required) workspace-relative path to actual output file
+file = "output.txt"             # optional; workspace-relative path; omit to use structured output (output_schema)
 expected = "..."                # (required) reference string to embed and compare against
 threshold = 0.85                # cosine similarity [0.0–1.0] required to pass; default: 0.8
 embedding_model = "..."         # local: "bge-small-en-v1.5" (default), "all-minilm-l6-v2", "nomic-embed-text-v1.5"

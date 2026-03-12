@@ -8,14 +8,13 @@ tools = "inherit"
 goal = """
 You have access to a Stripe MCP server connected to a test account.
 
-Task: What is the current balance on this Stripe account? Include both available and pending amounts. Write your answer as structured JSON to output.json.
+Task: What is the current balance on this Stripe account? Include both available and pending amounts. Return your answer as structured JSON.
 """
 
 [environment]
 root = "./workspace"
 
 [boundary]
-allow_write = ["output.json"]
 network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"
@@ -31,3 +30,10 @@ output_schema = """
   }
 }
 """
+
+[[verifier]]
+name = "balance-is-zero"
+type = "json"
+schema = '{"properties": {"available_amount": {"const": 0}, "pending_amount": {"const": 0}}}'
+trigger = "on_stop"
+description = "Test account balance must be 0 available and 0 pending"

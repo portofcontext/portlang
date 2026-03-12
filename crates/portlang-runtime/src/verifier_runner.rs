@@ -2,12 +2,17 @@ use crate::sandbox::Sandbox;
 use portlang_core::{Action, Verifier, VerifierAlgorithm, VerifierResult, VerifierTrigger};
 use strsim::normalized_levenshtein;
 
-/// Run verifiers based on trigger conditions
+/// Run verifiers based on trigger conditions.
+///
+/// `structured_output` is the validated JSON from `output_schema`, if any.
+/// Verifiers with no `file` field will use this value directly instead of
+/// reading from the workspace filesystem.
 pub async fn run_verifiers(
     sandbox: &dyn Sandbox,
     verifiers: &[Verifier],
     action: &Action,
     is_stop: bool,
+    structured_output: Option<&serde_json::Value>,
 ) -> Vec<VerifierResult> {
     let mut results = Vec::new();
 
@@ -19,7 +24,7 @@ pub async fn run_verifiers(
         };
 
         if should_run {
-            let result = run_verifier(sandbox, verifier).await;
+            let result = run_verifier(sandbox, verifier, structured_output).await;
             results.push(result);
         }
     }
@@ -28,7 +33,11 @@ pub async fn run_verifiers(
 }
 
 /// Dispatch to the appropriate verifier implementation
-async fn run_verifier(sandbox: &dyn Sandbox, verifier: &Verifier) -> VerifierResult {
+async fn run_verifier(
+    sandbox: &dyn Sandbox,
+    verifier: &Verifier,
+    structured_output: Option<&serde_json::Value>,
+) -> VerifierResult {
     match &verifier.algorithm {
         VerifierAlgorithm::Shell { command } => {
             run_shell_verifier(sandbox, verifier, command).await
@@ -37,9 +46,26 @@ async fn run_verifier(sandbox: &dyn Sandbox, verifier: &Verifier) -> VerifierRes
             file,
             expected,
             threshold,
-        } => run_levenshtein_verifier(sandbox, verifier, file, expected, *threshold).await,
+        } => {
+            run_levenshtein_verifier(
+                sandbox,
+                verifier,
+                file.as_deref(),
+                expected,
+                *threshold,
+                structured_output,
+            )
+            .await
+        }
         VerifierAlgorithm::Json { file, schema } => {
-            run_json_verifier(sandbox, verifier, file, schema.as_ref()).await
+            run_json_verifier(
+                sandbox,
+                verifier,
+                file.as_deref(),
+                schema.as_ref(),
+                structured_output,
+            )
+            .await
         }
         VerifierAlgorithm::Semantic {
             file,
@@ -51,11 +77,12 @@ async fn run_verifier(sandbox: &dyn Sandbox, verifier: &Verifier) -> VerifierRes
             run_semantic_verifier(
                 sandbox,
                 verifier,
-                file,
+                file.as_deref(),
                 expected,
                 *threshold,
                 embedding_url.as_deref(),
                 embedding_model.as_deref(),
+                structured_output,
             )
             .await
         }
@@ -95,6 +122,22 @@ async fn run_shell_verifier(
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Resolve the text content to verify: read from file, or serialize structured output.
+/// Returns `Err` if neither is available.
+async fn resolve_text_content(
+    sandbox: &dyn Sandbox,
+    file: Option<&str>,
+    structured_output: Option<&serde_json::Value>,
+) -> Result<String, String> {
+    if let Some(path) = file {
+        read_workspace_file(sandbox, path).await
+    } else if let Some(output) = structured_output {
+        Ok(serde_json::to_string_pretty(output).unwrap_or_else(|_| output.to_string()))
+    } else {
+        Err("No 'file' specified and no structured output available. Add 'file' or define 'output_schema' in [boundary].".to_string())
+    }
+}
+
 /// Read a workspace file via the sandbox, returning its contents or an error message.
 async fn read_workspace_file(sandbox: &dyn Sandbox, file: &str) -> Result<String, String> {
     let cmd = format!("cat {}", shell_quote(file));
@@ -124,11 +167,12 @@ fn shell_quote(s: &str) -> String {
 async fn run_levenshtein_verifier(
     sandbox: &dyn Sandbox,
     verifier: &Verifier,
-    file: &str,
+    file: Option<&str>,
     expected: &str,
     threshold: f64,
+    structured_output: Option<&serde_json::Value>,
 ) -> VerifierResult {
-    let actual = match read_workspace_file(sandbox, file).await {
+    let actual = match resolve_text_content(sandbox, file, structured_output).await {
         Ok(content) => content,
         Err(e) => {
             return VerifierResult::new(verifier.name.clone(), false, String::new(), e, 1);
@@ -166,26 +210,42 @@ async fn run_levenshtein_verifier(
 async fn run_json_verifier(
     sandbox: &dyn Sandbox,
     verifier: &Verifier,
-    file: &str,
+    file: Option<&str>,
     schema: Option<&serde_json::Value>,
+    structured_output: Option<&serde_json::Value>,
 ) -> VerifierResult {
-    let content = match read_workspace_file(sandbox, file).await {
-        Ok(c) => c,
-        Err(e) => {
-            return VerifierResult::new(verifier.name.clone(), false, String::new(), e, 1);
+    // When no file is specified, use structured output directly (no re-parsing needed).
+    let parsed: serde_json::Value = if file.is_none() {
+        match structured_output {
+            Some(v) => v.clone(),
+            None => {
+                return VerifierResult::new(
+                    verifier.name.clone(),
+                    false,
+                    String::new(),
+                    "No 'file' specified and no structured output available. Add 'file' or define 'output_schema' in [boundary].".to_string(),
+                    1,
+                );
+            }
         }
-    };
-
-    let parsed: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(v) => v,
-        Err(e) => {
-            return VerifierResult::new(
-                verifier.name.clone(),
-                false,
-                String::new(),
-                format!("Invalid JSON: {}", e),
-                1,
-            );
+    } else {
+        let content = match resolve_text_content(sandbox, file, None).await {
+            Ok(c) => c,
+            Err(e) => {
+                return VerifierResult::new(verifier.name.clone(), false, String::new(), e, 1);
+            }
+        };
+        match serde_json::from_str(&content) {
+            Ok(v) => v,
+            Err(e) => {
+                return VerifierResult::new(
+                    verifier.name.clone(),
+                    false,
+                    String::new(),
+                    format!("Invalid JSON: {}", e),
+                    1,
+                );
+            }
         }
     };
 
@@ -238,13 +298,14 @@ async fn run_json_verifier(
 async fn run_semantic_verifier(
     sandbox: &dyn Sandbox,
     verifier: &Verifier,
-    file: &str,
+    file: Option<&str>,
     expected: &str,
     threshold: f64,
     embedding_url: Option<&str>,
     embedding_model: Option<&str>,
+    structured_output: Option<&serde_json::Value>,
 ) -> VerifierResult {
-    let actual = match read_workspace_file(sandbox, file).await {
+    let actual = match resolve_text_content(sandbox, file, structured_output).await {
         Ok(content) => content,
         Err(e) => {
             return VerifierResult::new(verifier.name.clone(), false, String::new(), e, 1);

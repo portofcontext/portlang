@@ -8,14 +8,13 @@ tools = "inherit"
 goal = """
 You have access to a Stripe MCP server connected to a test account.
 
-Task: Who works on the CI pipeline at Sable Tech and what's their email? Return the customer's name and email as structured JSON written to output.json.
+Task: Who works on the CI pipeline at Sable Tech and what's their email? Return the customer's name and email as structured JSON.
 """
 
 [environment]
 root = "./workspace"
 
 [boundary]
-allow_write = ["output.json"]
 network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"
@@ -34,7 +33,6 @@ output_schema = """
 [[verifier]]
 name = "correct-customer"
 type = "json"
-file = "output.json"
 schema = '{"properties": {"name": {"const": "Fang Nguyen"}, "email": {"const": "fang.nguyen@sable.cloud"}}}'
 trigger = "on_stop"
 description = "Must return Fang Nguyen with email fang.nguyen@sable.cloud"

@@ -8,8 +8,10 @@ pub enum VerifierAlgorithm {
     Shell { command: String },
     /// Normalized Levenshtein edit distance against a reference string
     Levenshtein {
-        /// Workspace-relative path to the file containing actual output
-        file: String,
+        /// Workspace-relative path to the file containing actual output.
+        /// When omitted, the run's structured output (output_schema) is used.
+        #[serde(default)]
+        file: Option<String>,
         /// Reference string to compare against
         expected: String,
         /// Minimum normalized similarity [0.0, 1.0] required to pass (default: 1.0)
@@ -18,16 +20,20 @@ pub enum VerifierAlgorithm {
     },
     /// JSON structure validation, optionally against a JSON Schema
     Json {
-        /// Workspace-relative path to the file to validate
-        file: String,
+        /// Workspace-relative path to the file to validate.
+        /// When omitted, the run's structured output (output_schema) is used.
+        #[serde(default)]
+        file: Option<String>,
         /// Optional JSON Schema (as a JSON value) to validate structure
         #[serde(default)]
         schema: Option<serde_json::Value>,
     },
     /// Cosine similarity of embeddings from an OpenAI-compatible embeddings API
     Semantic {
-        /// Workspace-relative path to the file containing actual output
-        file: String,
+        /// Workspace-relative path to the file containing actual output.
+        /// When omitted, the run's structured output (output_schema) is used.
+        #[serde(default)]
+        file: Option<String>,
         /// Reference string to embed and compare against
         expected: String,
         /// Minimum cosine similarity [0.0, 1.0] required to pass (default: 0.8)

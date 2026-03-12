@@ -8,14 +8,13 @@ tools = "inherit"
 goal = """
 You have access to a Stripe MCP server.
 
-Task: Get the account balance. Return the available and pending amounts as structured JSON written to output.json.
+Task: Get the account balance. Return the available and pending amounts as structured JSON.
 """
 
 [environment]
 root = "./workspace"
 
 [boundary]
-allow_write = ["output.json"]
 network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"

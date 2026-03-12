@@ -8,14 +8,13 @@ tools = "inherit"
 goal = """
 You have access to a Stripe MCP server connected to a test account.
 
-Task: What's the most expensive product in my Stripe account? Return the product name and price as structured JSON written to output.json.
+Task: What's the most expensive product in my Stripe account? Return the product name and price as structured JSON.
 """
 
 [environment]
 root = "./workspace"
 
 [boundary]
-allow_write = ["output.json"]
 network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"
@@ -35,7 +34,6 @@ output_schema = """
 [[verifier]]
 name = "correct-product"
 type = "json"
-file = "output.json"
 schema = '{"properties": {"name": {"const": "Team Training Weekend"}}}'
 trigger = "on_stop"
 description = "Most expensive product must be Team Training Weekend"

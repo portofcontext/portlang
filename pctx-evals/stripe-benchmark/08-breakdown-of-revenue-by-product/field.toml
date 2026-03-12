@@ -8,14 +8,13 @@ tools = "inherit"
 goal = """
 You have access to a Stripe MCP server connected to a test account.
 
-Task: What is the breakdown of revenue by product in my Stripe account? Return the product names and their total revenue as structured JSON written to output.json.
+Task: What is the breakdown of revenue by product in my Stripe account? Return the product names and their total revenue as structured JSON.
 """
 
 [environment]
 root = "./workspace"
 
 [boundary]
-allow_write = ["output.json"]
 network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"
