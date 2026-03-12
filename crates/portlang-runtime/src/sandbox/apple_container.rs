@@ -233,11 +233,9 @@ impl AppleContainerSandbox {
                 }
                 Value::Object(new_map)
             }
-            Value::Array(arr) => Value::Array(
-                arr.iter()
-                    .map(|v| Self::normalize_paths_in_value(v))
-                    .collect(),
-            ),
+            Value::Array(arr) => {
+                Value::Array(arr.iter().map(Self::normalize_paths_in_value).collect())
+            }
             _ => value.clone(),
         }
     }
@@ -425,7 +423,7 @@ impl Sandbox for AppleContainerSandbox {
                     // This includes: custom tools (Python, shell), code_mode, MCP tools, etc.
                     // These run on the host, so we need to normalize /workspace/ paths to relative paths
                     _ => {
-                        let normalized_input = Self::normalize_paths_in_value(&input);
+                        let normalized_input = Self::normalize_paths_in_value(input);
                         self.registry
                             .execute(tool.as_str(), &self.host_workspace, normalized_input)
                             .await

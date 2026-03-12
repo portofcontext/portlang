@@ -8,33 +8,43 @@ tools = "inherit"
 goal = """
 You have access to a Stripe MCP server connected to a test account.
 
-Task: First, count how many coupons exist in my Stripe account. Then create a one time use 25.5% off coupon with the name "EVAL25" that applies to all products. Finally count the coupons again and confirm the count increased by 1. Report the before count, the new coupon's full json data, and the after count.
-
-Write your answer to a file named "result.txt".
+Task: First, count how many coupons exist. Then create a one-time-use 25.5% off coupon with the name "EVAL25" that applies to all products. Then count coupons again. Return the before count, the created coupon data, and the after count as structured JSON written to output.json.
 """
 
 [environment]
 root = "./workspace"
 
 [boundary]
-allow_write = ["result.txt", "*.json"]
+allow_write = ["output.json"]
 network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"
 max_steps = 30
+output_schema = """
+{
+  "type": "object",
+  "required": ["before_count", "coupon", "after_count"],
+  "properties": {
+    "before_count": { "type": "integer", "minimum": 0 },
+    "coupon": {
+      "type": "object",
+      "required": ["id", "name", "percent_off", "max_redemptions"],
+      "properties": {
+        "id":               { "type": "string" },
+        "name":             { "type": "string" },
+        "percent_off":      { "type": "number" },
+        "max_redemptions":  { "type": "integer" }
+      }
+    },
+    "after_count": { "type": "integer", "minimum": 1 }
+  }
+}
+"""
 
 [[verifier]]
-name = "result-file-exists"
-command = """
-test -f result.txt
-"""
+name = "coupon-created"
+type = "json"
+file = "output.json"
+schema = '{"properties": {"coupon": {"properties": {"name": {"const": "EVAL25"}, "percent_off": {"const": 25.5}, "max_redemptions": {"const": 1}}}}}'
 trigger = "on_stop"
-description = "result.txt must exist"
-
-[[verifier]]
-name = "contains-expected-text"
-command = """
-grep -qi "EVAL25" result.txt && grep -qi "once" result.txt && grep -qi "25.5%" result.txt
-"""
-trigger = "on_stop"
-description = "Result must contain: EVAL25, once, 25.5%"
+description = "Coupon must be named EVAL25 with 25.5% off and max_redemptions=1"

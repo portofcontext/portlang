@@ -96,8 +96,6 @@ pub struct RawField {
     pub code_mode: Option<InheritOr<RawCodeMode>>,
     #[serde(default)]
     pub verifier: Vec<RawVerifier>,
-    #[serde(default, deserialize_with = "deserialize_output_schema")]
-    pub output_schema: Option<serde_json::Value>,
 }
 
 fn deserialize_output_schema<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
@@ -105,23 +103,11 @@ where
     D: serde::Deserializer<'de>,
 {
     use serde::Deserialize;
-
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum SchemaOrString {
-        String(String),
-        Value(serde_json::Value),
-    }
-
-    match Option::<SchemaOrString>::deserialize(deserializer)? {
+    match Option::<String>::deserialize(deserializer)? {
         None => Ok(None),
-        Some(SchemaOrString::String(s)) => {
-            // Parse JSON string
-            serde_json::from_str(&s)
-                .map(Some)
-                .map_err(serde::de::Error::custom)
-        }
-        Some(SchemaOrString::Value(v)) => Ok(Some(v)),
+        Some(s) => serde_json::from_str(&s)
+            .map(Some)
+            .map_err(serde::de::Error::custom),
     }
 }
 
@@ -179,6 +165,8 @@ pub struct RawBoundary {
     pub max_steps: Option<u64>,
     #[serde(default = "default_true")]
     pub bash: bool,
+    #[serde(default, deserialize_with = "deserialize_output_schema")]
+    pub output_schema: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

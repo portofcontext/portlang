@@ -8,33 +8,26 @@ tools = "inherit"
 goal = """
 You have access to a Stripe MCP server connected to a test account.
 
-Task: What is the current balance on this Stripe account? Be concise but include both available and pending amounts.
-
-Write your answer to a file named "result.txt".
+Task: What is the current balance on this Stripe account? Include both available and pending amounts. Write your answer as structured JSON to output.json.
 """
 
 [environment]
 root = "./workspace"
 
 [boundary]
-allow_write = ["result.txt", "*.json"]
+allow_write = ["output.json"]
 network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"
 max_steps = 30
-
-[[verifier]]
-name = "result-file-exists"
-command = """
-test -f result.txt
+output_schema = """
+{
+  "type": "object",
+  "required": ["available_amount", "pending_amount", "currency"],
+  "properties": {
+    "available_amount": { "type": "integer" },
+    "pending_amount":   { "type": "integer" },
+    "currency":         { "type": "string" }
+  }
+}
 """
-trigger = "on_stop"
-description = "result.txt must exist"
-
-[[verifier]]
-name = "contains-expected-text"
-command = """
-grep -qi "available" result.txt && grep -qi "pending" result.txt
-"""
-trigger = "on_stop"
-description = "Result must contain: available, pending"

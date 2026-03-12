@@ -131,10 +131,6 @@ pub struct Field {
     #[serde(default)]
     pub verifiers: Vec<Verifier>,
 
-    /// Optional JSON schema for structured output validation
-    #[serde(default)]
-    pub output_schema: Option<serde_json::Value>,
-
     /// Directory containing the field.toml file (for path resolution)
     /// None if field was loaded from stdin or string
     #[serde(skip)]
@@ -156,7 +152,6 @@ impl Field {
             boundary: Boundary::default(),
             tools: Vec::new(),
             verifiers: Vec::new(),
-            output_schema: None,
             config_dir: None,
         }
     }

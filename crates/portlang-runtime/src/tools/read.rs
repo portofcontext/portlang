@@ -10,7 +10,7 @@ pub fn read_file(root: &Path, file_path: &str) -> Result<String> {
     let full_path = root.join(file_path);
 
     // Ensure path doesn't escape root
-    let canonical_root = fs::canonicalize(root).map_err(|e| SandboxError::Io(e))?;
+    let canonical_root = fs::canonicalize(root).map_err(SandboxError::Io)?;
 
     let canonical_path = match full_path.canonicalize() {
         Ok(p) => p,
@@ -20,7 +20,7 @@ pub fn read_file(root: &Path, file_path: &str) -> Result<String> {
                 .parent()
                 .ok_or_else(|| SandboxError::PathEscape(format!("Invalid path: {}", file_path)))?;
 
-            let canonical_parent = fs::canonicalize(parent).map_err(|e| SandboxError::Io(e))?;
+            let canonical_parent = fs::canonicalize(parent).map_err(SandboxError::Io)?;
 
             let filename = full_path
                 .file_name()

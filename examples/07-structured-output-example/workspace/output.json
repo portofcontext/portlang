@@ -5,5 +5,5 @@
     "test.txt"
   ],
   "status": "success",
-  "summary": "The workspace contains 2 files. 'test.txt' is a minimal plain-text file containing only the string 'Hello World'. 'output.json' is a JSON file holding a previous structured report that referenced only 'test.txt' with a file count of 1. No subdirectories were found."
+  "summary": "The workspace contains 2 files. 'test.txt' is a minimal plain-text file containing a single line: 'Hello World'. 'output.json' is a JSON file storing a previously generated structured workspace report. No subdirectories or additional files were found. All files were readable and analysis completed successfully."
 }

@@ -6,37 +6,28 @@ tools = "inherit"
 
 [prompt]
 goal = """
-You have access to a Stripe MCP server
+You have access to a Stripe MCP server.
 
-Task:
-1. Use the Stripe MCP to get the account balance
-2. Write the balance information to a file named "balance.txt"
-3. The balance should show available and pending amounts
-
-Stop once you've retrieved and written the balance.
+Task: Get the account balance. Return the available and pending amounts as structured JSON written to output.json.
 """
 
 [environment]
 root = "./workspace"
 
 [boundary]
-allow_write = ["balance.txt"]
+allow_write = ["output.json"]
 network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"
 max_steps = 20
-
-[[verifier]]
-name = "balance-retrieved"
-command = """
-if [ -f "balance.txt" ]; then
-    echo "✓ Balance file created"
-    cat balance.txt
-    exit 0
-else
-    echo "✗ Balance file not found"
-    exit 1
-fi
+output_schema = """
+{
+  "type": "object",
+  "required": ["available_amount", "pending_amount", "currency"],
+  "properties": {
+    "available_amount": { "type": "integer" },
+    "pending_amount":   { "type": "integer" },
+    "currency":         { "type": "string" }
+  }
+}
 """
-trigger = "on_stop"
-description = "Verify balance.txt was created with Stripe balance data"

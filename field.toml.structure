@@ -33,6 +33,7 @@ max_tokens = 150000             # hard ceiling on total context tokens across en
 max_cost = "$2.00"              # hard ceiling on total cost
 max_steps = 30                  # hard ceiling on agent steps
 bash = true | false             # enable built-in bash tool; default: true (set false to restrict to basic filesystem tools only)
+output_schema = """{ ... }"""   # optional; JSON schema as a JSON string; multi-line TOML strings recommended
 
 tools = "inherit"               # optional; inherit [[tool]] list from parent instead of defining inline
 
@@ -95,5 +96,3 @@ embedding_model = "..."         # local: "bge-small-en-v1.5" (default), "all-min
                                 # model downloaded from HuggingFace on first use (~67 MB), no API key required
 embedding_url = "https://..."  # optional; set to use an OpenAI-compatible HTTP endpoint instead of local model
                                 # reads EMBEDDING_API_KEY or OPENAI_API_KEY from environment when embedding_url is set
-
-[output_schema]                 # optional; JSON schema for structured output validation as string

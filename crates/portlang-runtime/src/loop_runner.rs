@@ -135,11 +135,18 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
         EnvironmentContext::discover(sandbox.as_ref(), field.prompt.system.clone()).await;
     tracing::debug!("Environment context generated");
 
+    // Pre-flight: run shell verifiers once against the empty workspace and abort
+    // if any command is missing (exit 127 = command not found).
+    preflight_verifiers(sandbox.as_ref(), &field.verifiers).await?;
+
     // Create context window
     let mut context = ContextWindow::new(&field.prompt.goal);
 
     // Create loop detector
     let mut loop_detector = LoopDetector::new();
+
+    // Create fixup tracker for structured output correction
+    let mut fixup_tracker = crate::structured_output::FixupTracker::new();
 
     // Tool definitions from registry
     let tool_definitions = registry.tool_definitions();
@@ -153,7 +160,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
         .collect();
 
     // Add submit_output tool if structured output is required
-    if field.output_schema.is_some() {
+    if field.boundary.output_schema.is_some() {
         tools.push(Tool {
             name: "submit_output".to_string(),
             description: Some("Submit your final structured output. Call this when you're ready to finish with your JSON result.".to_string()),
@@ -184,7 +191,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
     );
 
     // Store output schema if defined
-    if let Some(ref schema) = field.output_schema {
+    if let Some(ref schema) = field.boundary.output_schema {
         trajectory.set_output_schema(schema.clone());
     }
 
@@ -315,98 +322,122 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
             if let Action::ToolCall { tool, input, .. } = &action {
                 if tool.as_str() == "submit_output" {
                     // Extract and validate the output
-                    if let Some(ref schema) = field.output_schema {
+                    if let Some(ref schema) = field.boundary.output_schema {
                         match input.get("output") {
                             Some(output_value) => {
-                                // Validate against schema
-                                if let Err(e) = crate::structured_output::validate_against_schema(
-                                    output_value,
-                                    schema,
-                                ) {
-                                    let error_msg = format!("Output validation failed: {}", e);
-                                    tracing::error!("{}", error_msg);
-
-                                    // Return error to agent
-                                    if let Some(id) = tool_use_id.clone() {
-                                        context.append_tool_result(id, error_msg.clone(), true);
+                                // Coerce output toward schema (schema-aligned correction)
+                                match crate::structured_output::coerce(output_value, schema) {
+                                    Err(e) => {
+                                        // Coercion failed — inject fixup message and let agent retry
+                                        let raw = serde_json::to_string_pretty(output_value)
+                                            .unwrap_or_default();
+                                        let feedback = match fixup_tracker.next_message(&raw, schema, &e) {
+                                            Some(msg) => msg,
+                                            None => format!(
+                                                "Output validation failed after {} fixup attempts. {}",
+                                                crate::structured_output::MAX_FIXUP_ATTEMPTS, e
+                                            ),
+                                        };
+                                        tracing::error!("submit_output coercion failed: {}", e);
+                                        if let Some(id) = tool_use_id.clone() {
+                                            context.append_tool_result(id, feedback.clone(), true);
+                                        }
+                                        let step = TrajectoryStep::new(
+                                            step_number,
+                                            action.clone(),
+                                            feedback,
+                                            false,
+                                            cost,
+                                            usage.total_tokens,
+                                        )
+                                        .with_token_breakdown(
+                                            usage.input_tokens,
+                                            usage.output_tokens,
+                                        );
+                                        trajectory.add_step(step);
+                                        continue;
                                     }
+                                    Ok(coerced) => {
+                                        let output_value = &coerced.value;
+                                        if !coerced.corrections.is_empty() {
+                                            tracing::info!(
+                                                "submit_output: applied {} correction(s), score={}",
+                                                coerced.corrections.len(),
+                                                coerced.score
+                                            );
+                                        }
 
-                                    let step = TrajectoryStep::new(
-                                        step_number,
-                                        action.clone(),
-                                        error_msg.clone(),
-                                        false,
-                                        cost,
-                                        usage.total_tokens,
-                                    )
-                                    .with_token_breakdown(usage.input_tokens, usage.output_tokens);
-                                    trajectory.add_step(step);
+                                        // Write to output.json
+                                        let output_json =
+                                            serde_json::to_string_pretty(output_value).unwrap();
+                                        let write_cmd = format!(
+                                            "cat > /workspace/output.json << 'EOF'\n{}\nEOF",
+                                            output_json
+                                        );
+                                        if let Err(e) = sandbox.run_command(&write_cmd).await {
+                                            tracing::warn!("Failed to write output.json: {}", e);
+                                        }
 
-                                    continue; // Let agent try again
-                                }
+                                        // Store in trajectory
+                                        trajectory.set_structured_output(output_value.clone());
 
-                                // Write to output.json
-                                let output_json =
-                                    serde_json::to_string_pretty(output_value).unwrap();
-                                let write_cmd = format!(
-                                    "cat > /workspace/output.json << 'EOF'\n{}\nEOF",
-                                    output_json
-                                );
-                                if let Err(e) = sandbox.run_command(&write_cmd).await {
-                                    tracing::warn!("Failed to write output.json: {}", e);
-                                }
+                                        // Return success to agent and trigger termination
+                                        let success_msg =
+                                            "Output submitted successfully. Validation passed."
+                                                .to_string();
+                                        if let Some(id) = tool_use_id.clone() {
+                                            context.append_tool_result(
+                                                id,
+                                                success_msg.clone(),
+                                                false,
+                                            );
+                                        }
 
-                                // Store in trajectory
-                                trajectory.set_structured_output(output_value.clone());
+                                        let step = TrajectoryStep::new(
+                                            step_number,
+                                            action.clone(),
+                                            success_msg.clone(),
+                                            false,
+                                            cost,
+                                            usage.total_tokens,
+                                        )
+                                        .with_token_breakdown(
+                                            usage.input_tokens,
+                                            usage.output_tokens,
+                                        );
+                                        trajectory.add_step(step);
 
-                                // Return success to agent and trigger termination
-                                let success_msg =
-                                    "Output submitted successfully. Validation passed.".to_string();
-                                if let Some(id) = tool_use_id.clone() {
-                                    context.append_tool_result(id, success_msg.clone(), false);
-                                }
+                                        // Run verifiers
+                                        let verifier_results = run_verifiers(
+                                            sandbox.as_ref(),
+                                            &field.verifiers,
+                                            &action,
+                                            true,
+                                        )
+                                        .await;
+                                        let all_passed = verifier_results.iter().all(|r| r.passed);
 
-                                let step = TrajectoryStep::new(
-                                    step_number,
-                                    action.clone(),
-                                    success_msg.clone(),
-                                    false,
-                                    cost,
-                                    usage.total_tokens,
-                                )
-                                .with_token_breakdown(usage.input_tokens, usage.output_tokens);
-                                trajectory.add_step(step);
+                                        if verifier_results.is_empty() || all_passed {
+                                            trajectory.finish(RunOutcome::Converged {
+                                                message:
+                                                    "Structured output submitted and validated"
+                                                        .to_string(),
+                                            });
+                                        } else if let Some(failed) =
+                                            verifier_results.iter().find(|r| !r.passed)
+                                        {
+                                            trajectory.finish(RunOutcome::VerifierFailed {
+                                                verifier: failed.name.clone(),
+                                                message: failed.stderr.clone(),
+                                            });
+                                        }
 
-                                // Run verifiers
-                                let verifier_results = run_verifiers(
-                                    sandbox.as_ref(),
-                                    &field.verifiers,
-                                    &action,
-                                    true,
-                                )
-                                .await;
-                                let all_passed = verifier_results.iter().all(|r| r.passed);
-
-                                if verifier_results.is_empty() || all_passed {
-                                    trajectory.finish(RunOutcome::Converged {
-                                        message: "Structured output submitted and validated"
-                                            .to_string(),
-                                    });
-                                } else {
-                                    if let Some(failed) =
-                                        verifier_results.iter().find(|r| !r.passed)
-                                    {
-                                        trajectory.finish(RunOutcome::VerifierFailed {
-                                            verifier: failed.name.clone(),
-                                            message: failed.stderr.clone(),
-                                        });
-                                    }
-                                }
-
-                                if !mcp_servers.is_empty() {
-                                    let _ = mcp_manager.shutdown_all().await;
-                                }
-                                return Ok(trajectory);
+                                        if !mcp_servers.is_empty() {
+                                            let _ = mcp_manager.shutdown_all().await;
+                                        }
+                                        return Ok(trajectory);
+                                    } // Ok(coerced)
+                                } // match coerce
                             }
                             None => {
                                 let error_msg =
@@ -574,27 +605,33 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
             };
 
             // Handle structured output BEFORE checking verifiers (verifiers need output.json to exist)
-            if let Some(ref schema) = field.output_schema {
-                match crate::structured_output::extract_structured_output_from_trajectory(
-                    &trajectory.steps,
-                ) {
-                    Ok(output) => {
-                        // Validate against schema
-                        if let Err(e) =
-                            crate::structured_output::validate_against_schema(&output, schema)
-                        {
-                            tracing::error!("Output validation failed: {}", e);
-                            trajectory.finish(RunOutcome::Error {
-                                message: format!("Output validation failed: {}", e),
-                            });
-                            if !mcp_servers.is_empty() {
-                                let _ = mcp_manager.shutdown_all().await;
-                            }
-                            return Ok(trajectory);
+            if let Some(ref schema) = field.boundary.output_schema {
+                // Find the most recent text output to parse
+                let raw_text = trajectory
+                    .steps
+                    .iter()
+                    .rev()
+                    .find_map(|s| {
+                        if let portlang_core::Action::TextOutput { text } = &s.action {
+                            Some(text.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_default();
+
+                match crate::structured_output::parse_and_coerce(&raw_text, schema) {
+                    Ok(coerced) => {
+                        if !coerced.corrections.is_empty() {
+                            tracing::info!(
+                                "Structured output: applied {} correction(s), score={}",
+                                coerced.corrections.len(),
+                                coerced.score
+                            );
                         }
 
                         // Write to output.json for verifiers to access
-                        let output_json = serde_json::to_string_pretty(&output).unwrap();
+                        let output_json = serde_json::to_string_pretty(&coerced.value).unwrap();
                         let write_cmd = format!(
                             "cat > /workspace/output.json << 'EOF'\n{}\nEOF",
                             output_json
@@ -603,18 +640,38 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                             tracing::warn!("Failed to write output.json: {}", e);
                         }
 
-                        // Store in trajectory
-                        trajectory.set_structured_output(output);
+                        trajectory.set_structured_output(coerced.value);
                     }
                     Err(e) => {
-                        tracing::error!("Failed to extract structured output: {}", e);
-                        trajectory.finish(RunOutcome::Error {
-                            message: format!("Failed to extract structured output: {}", e),
-                        });
-                        if !mcp_servers.is_empty() {
-                            let _ = mcp_manager.shutdown_all().await;
+                        // Inject fixup message and let agent try again (up to MAX_FIXUP_ATTEMPTS)
+                        match fixup_tracker.next_message(&raw_text, schema, &e.to_string()) {
+                            Some(fixup_msg) => {
+                                tracing::warn!(
+                                    "Structured output parse failed, injecting fixup (attempt {}): {}",
+                                    fixup_tracker.attempts(),
+                                    e
+                                );
+                                context.append_observation(fixup_msg);
+                                continue; // restart loop — agent sees fixup message
+                            }
+                            None => {
+                                tracing::error!(
+                                    "Structured output failed after all fixup attempts: {}",
+                                    e
+                                );
+                                trajectory.finish(RunOutcome::Error {
+                                    message: format!(
+                                        "Failed to produce valid structured output after {} attempts: {}",
+                                        crate::structured_output::MAX_FIXUP_ATTEMPTS,
+                                        e
+                                    ),
+                                });
+                                if !mcp_servers.is_empty() {
+                                    let _ = mcp_manager.shutdown_all().await;
+                                }
+                                return Ok(trajectory);
+                            }
                         }
-                        return Ok(trajectory);
                     }
                 }
             }
@@ -655,6 +712,31 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
     }
 }
 
+/// Run each shell verifier once against the empty workspace. If any command exits with
+/// code 127 (command not found), return an error immediately so the run aborts before
+/// spending any model budget. Other non-zero exits are ignored — the workspace is empty
+/// so failures like "file not found" are expected and harmless.
+async fn preflight_verifiers(
+    sandbox: &dyn crate::sandbox::Sandbox,
+    verifiers: &[Verifier],
+) -> anyhow::Result<()> {
+    for verifier in verifiers {
+        if let VerifierAlgorithm::Shell { command } = &verifier.algorithm {
+            if let Ok(output) = sandbox.run_command(command).await {
+                if output.exit_code == 127 {
+                    anyhow::bail!(
+                        "Verifier '{}' cannot run — command not found (exit 127).\n  Command: {}\n  stderr: {}\nInstall the required binary on your host before running this field.",
+                        verifier.name,
+                        command,
+                        output.stderr.trim()
+                    );
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Build system prompt with environment context
 fn build_system_prompt(field: &Field, env_context: &EnvironmentContext) -> String {
     let mut parts = vec![];
@@ -668,7 +750,7 @@ fn build_system_prompt(field: &Field, env_context: &EnvironmentContext) -> Strin
     parts.push(env_context.format_for_prompt());
 
     // Add structured output requirements if schema is defined
-    if let Some(ref schema) = field.output_schema {
+    if let Some(ref schema) = field.boundary.output_schema {
         let mut output_doc = String::from("\n# Structured Output\n\n");
         output_doc.push_str("This task requires structured output matching this schema:\n\n");
         output_doc.push_str("```json\n");
@@ -684,4 +766,60 @@ fn build_system_prompt(field: &Field, env_context: &EnvironmentContext) -> Strin
     }
 
     parts.join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sandbox::dispatch::DispatchSandbox;
+    use crate::tools::ToolRegistry;
+    use portlang_core::{Boundary, Verifier, VerifierAlgorithm, VerifierTrigger};
+    use std::sync::Arc;
+
+    fn shell_verifier(name: &str, command: &str) -> Verifier {
+        Verifier {
+            name: name.to_string(),
+            algorithm: VerifierAlgorithm::Shell {
+                command: command.to_string(),
+            },
+            trigger: VerifierTrigger::OnStop,
+            description: None,
+        }
+    }
+
+    fn make_sandbox() -> DispatchSandbox {
+        let tmp = std::env::temp_dir();
+        let registry = Arc::new(ToolRegistry::new());
+        DispatchSandbox::new(tmp, Boundary::default(), registry)
+    }
+
+    #[tokio::test]
+    async fn preflight_passes_for_known_command() {
+        let sandbox = make_sandbox();
+        let verifiers = vec![shell_verifier("check-echo", "echo hello")];
+        let result = preflight_verifiers(&sandbox, &verifiers).await;
+        assert!(result.is_ok(), "echo should always be found: {:?}", result);
+    }
+
+    #[tokio::test]
+    async fn preflight_catches_missing_binary() {
+        let sandbox = make_sandbox();
+        let verifiers = vec![shell_verifier(
+            "uses-missing-binary",
+            "portlang_test_nonexistent_binary_xyz --version",
+        )];
+        let result = preflight_verifiers(&sandbox, &verifiers).await;
+        assert!(result.is_err(), "should fail when binary is missing");
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("uses-missing-binary"),
+            "error should name the verifier: {}",
+            msg
+        );
+        assert!(
+            msg.contains("127"),
+            "error should mention exit code 127: {}",
+            msg
+        );
+    }
 }

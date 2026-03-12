@@ -105,7 +105,7 @@ impl BoundaryViolation {
         let mut msg = format!("REJECTED: {}", self.description);
 
         if let Some(ref trace) = self.context_trace {
-            msg.push_str("\n");
+            msg.push('\n');
             msg.push_str(trace);
         }
 

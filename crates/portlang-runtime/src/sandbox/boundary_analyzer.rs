@@ -48,8 +48,8 @@ mod tests {
         );
         let analyzer = BoundaryAnalyzer::new(tracer);
 
-        let violation = analyzer
-            .analyze_write_violation("/workspace/result.txt", &vec!["result.txt".to_string()]);
+        let violation =
+            analyzer.analyze_write_violation("/workspace/result.txt", &["result.txt".to_string()]);
 
         assert!(violation.context_trace.is_some());
         let trace = violation.context_trace.unwrap();
@@ -62,8 +62,7 @@ mod tests {
         let tracer = ContextTracer::new(None, None);
         let analyzer = BoundaryAnalyzer::new(tracer);
 
-        let violation =
-            analyzer.analyze_write_violation("random.txt", &vec!["output.txt".to_string()]);
+        let violation = analyzer.analyze_write_violation("random.txt", &["output.txt".to_string()]);
 
         // Should still create violation even without context trace
         assert_eq!(violation.attempted_value, Some("random.txt".to_string()));

@@ -246,6 +246,7 @@ fn convert_raw_field(
             max_cost,
             max_steps: raw_boundary.max_steps,
             bash: raw_boundary.bash,
+            output_schema: raw_boundary.output_schema,
         }
     } else {
         Boundary::default()
@@ -658,7 +659,6 @@ fn convert_raw_field(
         boundary,
         tools,
         verifiers,
-        output_schema: raw.output_schema,
         config_dir,
     })
 }

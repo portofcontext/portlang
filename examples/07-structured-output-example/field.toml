@@ -22,43 +22,15 @@ network = "deny"
 max_tokens = 100000
 max_cost = "$1.00"
 max_steps = 10
-
-[output_schema]
-type = "object"
-required = ["status", "file_count", "files", "summary"]
-
-[output_schema.properties.status]
-type = "string"
-enum = ["success", "failure"]
-
-[output_schema.properties.file_count]
-type = "integer"
-minimum = 0
-
-[output_schema.properties.files]
-type = "array"
-
-[output_schema.properties.files.items]
-type = "string"
-
-[output_schema.properties.summary]
-type = "string"
-
-# Verifiers can now easily validate the structured output using jq
-[[verifier]]
-name = "output-exists"
-command = "test -f /workspace/output.json"
-trigger = "on_stop"
-description = "Check that output.json was created"
-
-[[verifier]]
-name = "has-files"
-command = "jq -e '.file_count > 0' /workspace/output.json"
-trigger = "on_stop"
-description = "Check that at least one file was found"
-
-[[verifier]]
-name = "status-is-success"
-command = "jq -e '.status == \"success\"' /workspace/output.json"
-trigger = "on_stop"
-description = "Check that status is success"
+output_schema = """
+{
+  "type": "object",
+  "required": ["status", "file_count", "files", "summary"],
+  "properties": {
+    "status":     { "type": "string", "enum": ["success", "failure"] },
+    "file_count": { "type": "integer", "minimum": 0 },
+    "files":      { "type": "array", "items": { "type": "string" } },
+    "summary":    { "type": "string" }
+  }
+}
+"""

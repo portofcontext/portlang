@@ -29,6 +29,10 @@ pub struct Boundary {
     /// Defaults to true — set to false to restrict the agent to filesystem tools only.
     #[serde(default = "default_true")]
     pub bash: bool,
+
+    /// Optional JSON schema for structured output validation.
+    #[serde(default)]
+    pub output_schema: Option<serde_json::Value>,
 }
 
 fn default_true() -> bool {
@@ -44,6 +48,7 @@ impl Default for Boundary {
             max_cost: None,
             max_steps: None,
             bash: true,
+            output_schema: None,
         }
     }
 }

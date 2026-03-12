@@ -8,33 +8,33 @@ tools = "inherit"
 goal = """
 You have access to a Stripe MCP server connected to a test account.
 
-Task: Who works on the CI pipeline at Sable Tech and what's their email? Just return the customer's name and email address.
-
-Write your answer to a file named "result.txt".
+Task: Who works on the CI pipeline at Sable Tech and what's their email? Return the customer's name and email as structured JSON written to output.json.
 """
 
 [environment]
 root = "./workspace"
 
 [boundary]
-allow_write = ["result.txt", "*.json"]
+allow_write = ["output.json"]
 network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"
 max_steps = 30
+output_schema = """
+{
+  "type": "object",
+  "required": ["name", "email"],
+  "properties": {
+    "name":  { "type": "string" },
+    "email": { "type": "string" }
+  }
+}
+"""
 
 [[verifier]]
-name = "result-file-exists"
-command = """
-test -f result.txt
-"""
+name = "correct-customer"
+type = "json"
+file = "output.json"
+schema = '{"properties": {"name": {"const": "Fang Nguyen"}, "email": {"const": "fang.nguyen@sable.cloud"}}}'
 trigger = "on_stop"
-description = "result.txt must exist"
-
-[[verifier]]
-name = "contains-expected-text"
-command = """
-grep -qi "Fang Nguyen" result.txt && grep -qi "fang.nguyen@sable.cloud" result.txt
-"""
-trigger = "on_stop"
-description = "Result must contain: Fang Nguyen, fang.nguyen@sable.cloud"
+description = "Must return Fang Nguyen with email fang.nguyen@sable.cloud"

@@ -1,5 +1,5 @@
 name = "11_create_invoice"
-description = "Creates a draft invoice for the customer with email charlotte.souza@synapseio.com which includes the data migration product ($5000 USD) and white glove onboarding ($2500 USD). The total should be $7500 USD. The output should include detail about the line items and the total amount"
+description = "Creates a draft invoice for charlotte.souza@synapseio.com including data migration ($5000) and white glove onboarding ($2500), total $7500"
 
 model = "inherit"
 tools = "inherit"
@@ -8,33 +8,45 @@ tools = "inherit"
 goal = """
 You have access to a Stripe MCP server connected to a test account.
 
-Task: Create an invoice for Charlotte Souza at SynapseIO to charge them for a data migration service and white glove onboarding. Return the invoice including the total and the line items.
-
-Write your answer to a file named "result.txt".
+Task: Create an invoice for Charlotte Souza at SynapseIO for a data migration service and white glove onboarding. Return the invoice ID, line items, and total as structured JSON written to output.json.
 """
 
 [environment]
 root = "./workspace"
 
 [boundary]
-allow_write = ["result.txt", "*.json"]
+allow_write = ["output.json"]
 network = "allow"
 max_tokens = 150000
 max_cost = "$2.00"
 max_steps = 30
+output_schema = """
+{
+  "type": "object",
+  "required": ["invoice_id", "total", "line_items"],
+  "properties": {
+    "invoice_id": { "type": "string" },
+    "total":      { "type": "integer", "minimum": 1 },
+    "line_items": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["description", "amount"],
+        "properties": {
+          "description": { "type": "string" },
+          "amount":      { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  }
+}
+"""
 
 [[verifier]]
-name = "result-file-exists"
-command = """
-test -f result.txt
-"""
+name = "correct-total"
+type = "json"
+file = "output.json"
+schema = '{"properties": {"total": {"const": 750000}}}'
 trigger = "on_stop"
-description = "result.txt must exist"
-
-[[verifier]]
-name = "contains-expected-text"
-command = """
-grep -qi "invoice" result.txt && grep -qi "7500" result.txt
-"""
-trigger = "on_stop"
-description = "Result must contain: invoice, 7500"
+description = "Invoice total must be 750000 cents ($7500)"

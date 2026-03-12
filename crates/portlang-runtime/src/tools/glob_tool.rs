@@ -19,7 +19,7 @@ pub fn glob_files(root: &Path, pattern: &str) -> Result<Vec<String>> {
     })?;
 
     let mut results = Vec::new();
-    let canonical_root = std::fs::canonicalize(root).map_err(|e| SandboxError::Io(e))?;
+    let canonical_root = std::fs::canonicalize(root).map_err(SandboxError::Io)?;
 
     for path in paths {
         let path = path.map_err(|e| SandboxError::ToolError(format!("Glob error: {}", e)))?;

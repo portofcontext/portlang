@@ -20,13 +20,13 @@ pub fn write_file(root: &Path, file_path: &str, content: &str) -> Result<()> {
     }
 
     // Ensure path doesn't escape root (check parent since file may not exist)
-    let canonical_root = fs::canonicalize(root).map_err(|e| SandboxError::Io(e))?;
+    let canonical_root = fs::canonicalize(root).map_err(SandboxError::Io)?;
 
     let parent = full_path
         .parent()
         .ok_or_else(|| SandboxError::PathEscape(format!("Invalid path: {}", file_path)))?;
 
-    let canonical_parent = fs::canonicalize(parent).map_err(|e| SandboxError::Io(e))?;
+    let canonical_parent = fs::canonicalize(parent).map_err(SandboxError::Io)?;
 
     if !canonical_parent.starts_with(&canonical_root) {
         return Err(SandboxError::PathEscape(format!(
