@@ -1,5 +1,0 @@
-Most Expensive Product in Stripe Account
-=========================================
-Name:   Team Training Weekend
-Amount: £999,999.99 GBP (99,999,999 pence)
-

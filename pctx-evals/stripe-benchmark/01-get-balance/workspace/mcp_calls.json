@@ -1,0 +1,131 @@
+[
+  {
+    "tool_name": "retrieve_balance",
+    "input_raw": {},
+    "input_schema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    },
+    "output_raw": {
+      "object": "balance",
+      "available": [
+        {
+          "amount": 0,
+          "currency": "usd",
+          "source_types": {
+            "card": 0
+          }
+        }
+      ],
+      "instant_available": [
+        {
+          "amount": 0,
+          "currency": "usd",
+          "source_types": {
+            "card": 0
+          }
+        }
+      ],
+      "livemode": false,
+      "pending": [
+        {
+          "amount": 0,
+          "currency": "usd",
+          "source_types": {
+            "card": 0
+          }
+        }
+      ],
+      "refund_and_dispute_prefunding": {
+        "available": [
+          {
+            "amount": 0,
+            "currency": "usd"
+          }
+        ],
+        "pending": [
+          {
+            "amount": 0,
+            "currency": "usd"
+          }
+        ]
+      }
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "object": { "type": "string" },
+        "available": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "amount": { "type": "integer" },
+              "currency": { "type": "string" },
+              "source_types": {
+                "type": "object",
+                "additionalProperties": { "type": "integer" }
+              }
+            }
+          }
+        },
+        "instant_available": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "amount": { "type": "integer" },
+              "currency": { "type": "string" },
+              "source_types": {
+                "type": "object",
+                "additionalProperties": { "type": "integer" }
+              }
+            }
+          }
+        },
+        "livemode": { "type": "boolean" },
+        "pending": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "amount": { "type": "integer" },
+              "currency": { "type": "string" },
+              "source_types": {
+                "type": "object",
+                "additionalProperties": { "type": "integer" }
+              }
+            }
+          }
+        },
+        "refund_and_dispute_prefunding": {
+          "type": "object",
+          "properties": {
+            "available": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "amount": { "type": "integer" },
+                  "currency": { "type": "string" }
+                }
+              }
+            },
+            "pending": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "amount": { "type": "integer" },
+                  "currency": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+]
+

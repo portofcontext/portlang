@@ -110,6 +110,10 @@ pub struct VerifierResult {
 
     /// Exit code (shell verifiers) or 0/1 for built-in verifiers
     pub exit_code: i32,
+
+    /// The JSON Schema used for validation (json verifiers only)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema: Option<serde_json::Value>,
 }
 
 impl VerifierResult {
@@ -121,6 +125,7 @@ impl VerifierResult {
             stdout,
             stderr,
             exit_code,
+            schema: None,
         }
     }
 
@@ -139,6 +144,12 @@ impl VerifierResult {
             stdout,
             stderr,
             exit_code,
+            schema: None,
         }
+    }
+
+    pub fn with_schema(mut self, schema: serde_json::Value) -> Self {
+        self.schema = Some(schema);
+        self
     }
 }

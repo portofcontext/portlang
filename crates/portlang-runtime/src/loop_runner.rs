@@ -367,17 +367,6 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                                             );
                                         }
 
-                                        // Write to output.json
-                                        let output_json =
-                                            serde_json::to_string_pretty(output_value).unwrap();
-                                        let write_cmd = format!(
-                                            "cat > /workspace/output.json << 'EOF'\n{}\nEOF",
-                                            output_json
-                                        );
-                                        if let Err(e) = sandbox.run_command(&write_cmd).await {
-                                            tracing::warn!("Failed to write output.json: {}", e);
-                                        }
-
                                         // Store in trajectory
                                         trajectory.set_structured_output(output_value.clone());
 
@@ -554,13 +543,14 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
         );
 
         // Step 6: Check token budget
+        // Use input_tokens from the current API call — this reflects the actual context window
+        // size (the full conversation history sent to the model), not a cumulative sum.
         if let Some(max_tokens) = field.boundary.max_tokens {
-            if context.total_tokens() >= max_tokens {
+            if usage.input_tokens >= max_tokens {
                 trajectory.finish(RunOutcome::BudgetExhausted {
                     reason: format!(
-                        "Token budget exhausted: {} >= {}",
-                        context.total_tokens(),
-                        max_tokens
+                        "Token budget exhausted: context window {} >= {}",
+                        usage.input_tokens, max_tokens
                     ),
                 });
                 // Cleanup MCP servers
@@ -611,7 +601,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                 _ => "Agent stopped".to_string(),
             };
 
-            // Handle structured output BEFORE checking verifiers (verifiers need output.json to exist)
+            // Handle structured output BEFORE checking verifiers
             if let Some(ref schema) = field.boundary.output_schema {
                 // Find the most recent text output to parse
                 let raw_text = trajectory
@@ -635,16 +625,6 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                                 coerced.corrections.len(),
                                 coerced.score
                             );
-                        }
-
-                        // Write to output.json for verifiers to access
-                        let output_json = serde_json::to_string_pretty(&coerced.value).unwrap();
-                        let write_cmd = format!(
-                            "cat > /workspace/output.json << 'EOF'\n{}\nEOF",
-                            output_json
-                        );
-                        if let Err(e) = sandbox.run_command(&write_cmd).await {
-                            tracing::warn!("Failed to write output.json: {}", e);
                         }
 
                         trajectory.set_structured_output(coerced.value);
@@ -765,9 +745,8 @@ fn build_system_prompt(field: &Field, env_context: &EnvironmentContext) -> Strin
             .push_str(&serde_json::to_string_pretty(schema).unwrap_or_else(|_| "{}".to_string()));
         output_doc.push_str("\n```\n\n");
         output_doc.push_str("When you're ready to submit your results, use the `submit_output` tool with your JSON object.\n");
-        output_doc.push_str(
-            "The system will validate your output and write it to output.json for verification.\n",
-        );
+        output_doc
+            .push_str("The system will validate your output and store it in the trajectory.\n");
 
         parts.push(output_doc);
     }

@@ -315,6 +315,34 @@ button:disabled {
   word-break: break-word;
 }
 
+.verifier-schema {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background: #F8F8F8;
+  border-radius: 4px;
+  border-left: 3px solid var(--tertiary);
+}
+
+.verifier-schema strong {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--tertiary);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.schema-text {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  background: #FAFAFA;
+  padding: 0.5rem;
+  margin: 0;
+  border-radius: 3px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .timeline {
   margin: 2rem 0 1rem 0;
   padding: 1rem 0;

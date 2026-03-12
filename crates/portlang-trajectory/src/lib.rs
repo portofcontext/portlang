@@ -1,5 +1,6 @@
 pub mod diff;
 pub mod error;
+pub mod eval_run;
 pub mod filesystem;
 pub mod replay;
 pub mod store;
@@ -7,6 +8,7 @@ pub mod types;
 
 pub use diff::*;
 pub use error::*;
+pub use eval_run::*;
 pub use filesystem::*;
 pub use replay::*;
 pub use store::*;

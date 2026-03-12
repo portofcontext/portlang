@@ -400,6 +400,19 @@ fn render_verifiers(verifier_results: &[portlang_core::VerifierResult]) -> Strin
                 ));
             }
 
+            // Always show schema for json verifiers
+            if let Some(ref schema) = vr.schema {
+                let schema_str =
+                    serde_json::to_string_pretty(schema).unwrap_or_else(|_| "{}".to_string());
+                details_html.push_str(&format!(
+                    r#"<div class="verifier-schema">
+    <strong>Schema:</strong>
+    <pre class="schema-text">{}</pre>
+</div>"#,
+                    escape_html(&schema_str)
+                ));
+            }
+
             // Show output details (especially for failed verifiers)
             if !vr.passed {
                 if !vr.stderr.is_empty() {

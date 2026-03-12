@@ -1,0 +1,39 @@
+[
+  {
+    "tool_name": "list_customers",
+    "input_raw": {
+      "limit": 3
+    },
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "description": "A limit on the number of customers to be returned. Limit can range between 1 and 100.",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": []
+    },
+    "output_raw": [
+      {"id": "cus_U7JPYPFZY6x8qG"},
+      {"id": "cus_U7JPJN2whxZeQn"},
+      {"id": "cus_U7JPFkCNDJ5Qyf"}
+    ],
+    "output_schema": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The unique identifier for the customer, prefixed with 'cus_'."
+          }
+        },
+        "required": ["id"]
+      }
+    }
+  }
+]
+

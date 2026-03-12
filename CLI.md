@@ -12,6 +12,8 @@ This document contains the help content for the `portlang` command-line program.
 * [`portlang converge`↴](#portlang-converge)
 * [`portlang eval`↴](#portlang-eval)
 * [`portlang list`↴](#portlang-list)
+* [`portlang list trajectories`↴](#portlang-list-trajectories)
+* [`portlang list evals`↴](#portlang-list-evals)
 * [`portlang replay`↴](#portlang-replay)
 * [`portlang diff`↴](#portlang-diff)
 * [`portlang report`↴](#portlang-report)
@@ -36,7 +38,7 @@ portlang - agent runtime with structured tools and verifiers
 * `check` — Check a field for errors
 * `converge` — Run a field N times and measure convergence reliability
 * `eval` — Run all fields in a directory and report aggregate accuracy
-* `list` — List trajectories
+* `list` — List trajectories and eval runs
 * `replay` — Replay a trajectory step-by-step
 * `diff` — Compare two trajectories
 * `report` — Generate an adaptation report from existing trajectories
@@ -175,15 +177,29 @@ Run all fields in a directory and report aggregate accuracy
 ###### **Options:**
 
 * `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field.toml to inherit from (defaults to <directory>/field.toml if present)
+* `--resume <RESUME>` — Resume a previous eval run, skipping fields that already passed
 * `--html` — Generate HTML dashboard instead of CLI output
 
 
 
 ## `portlang list`
 
+List trajectories and eval runs
+
+**Usage:** `portlang list <COMMAND>`
+
+###### **Subcommands:**
+
+* `trajectories` — List trajectories
+* `evals` — List eval runs
+
+
+
+## `portlang list trajectories`
+
 List trajectories
 
-**Usage:** `portlang list [OPTIONS] [FIELD_NAME]`
+**Usage:** `portlang list trajectories [OPTIONS] [FIELD_NAME]`
 
 ###### **Arguments:**
 
@@ -193,6 +209,22 @@ List trajectories
 
 * `--converged` — Show only converged trajectories
 * `-f`, `--failed` — Show only failed trajectories
+* `-l`, `--limit <LIMIT>` — Limit number of results
+
+
+
+## `portlang list evals`
+
+List eval runs
+
+**Usage:** `portlang list evals [OPTIONS] [DIR]`
+
+###### **Arguments:**
+
+* `<DIR>` — Filter by directory (substring match)
+
+###### **Options:**
+
 * `-l`, `--limit <LIMIT>` — Limit number of results
 
 
@@ -289,11 +321,11 @@ View a single trajectory
 
 View eval results dashboard
 
-**Usage:** `portlang view eval [OPTIONS] <DIRECTORY>`
+**Usage:** `portlang view eval [OPTIONS] <ID_OR_DIR>`
 
 ###### **Arguments:**
 
-* `<DIRECTORY>` — Directory containing field.toml files
+* `<ID_OR_DIR>` — Eval run ID or directory path
 
 ###### **Options:**
 

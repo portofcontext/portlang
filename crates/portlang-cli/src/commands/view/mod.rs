@@ -3,9 +3,8 @@ pub mod templates;
 
 use anyhow::{Context, Result};
 use portlang_adapt::AdaptationReport;
-use portlang_trajectory::FilesystemStore;
+use portlang_trajectory::{EvalRun, EvalRunStore, FilesystemStore};
 use std::path::PathBuf;
-use walkdir::WalkDir;
 
 /// View a trajectory as HTML
 pub fn view_trajectory(trajectory_id: String, auto_open: bool) -> Result<()> {
@@ -29,52 +28,50 @@ pub fn view_trajectory(trajectory_id: String, auto_open: bool) -> Result<()> {
     Ok(())
 }
 
-/// View eval results as HTML dashboard
-pub fn view_eval(eval_dir: PathBuf, auto_open: bool) -> Result<()> {
+/// View eval results as HTML dashboard — accepts an eval run ID or a directory path.
+pub fn view_eval(id_or_dir: String, auto_open: bool) -> Result<()> {
     use portlang_trajectory::TrajectoryStore;
 
-    let store = FilesystemStore::new()?;
+    let eval_run_store = EvalRunStore::new()?;
+    let traj_store = FilesystemStore::new()?;
 
-    // Collect all field names from field.toml files
-    let field_paths: Vec<PathBuf> = WalkDir::new(&eval_dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_name() == "field.toml")
-        .map(|e| e.into_path())
-        .collect();
+    // Resolve the eval run: by ID if it looks like one, otherwise find latest for dir.
+    let eval_run: EvalRun = if EvalRunStore::looks_like_id(&id_or_dir) {
+        eval_run_store
+            .load(&id_or_dir)
+            .context(format!("Eval run not found: {}", id_or_dir))?
+    } else {
+        eval_run_store
+            .find_latest_for_dir(&id_or_dir)?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "No eval runs found for directory: {}\nRun `portlang eval {}` first.",
+                    id_or_dir,
+                    id_or_dir
+                )
+            })?
+    };
 
-    if field_paths.is_empty() {
-        anyhow::bail!("No field.toml files found in {}", eval_dir.display());
-    }
-
-    // Load trajectories for all fields
+    // Load each trajectory from the eval run manifest (preserving run order)
     let mut all_trajectories = Vec::new();
-    for path in &field_paths {
-        if let Ok(field) = portlang_config::parse_field_from_file(path) {
-            // Get summaries and then load full trajectories
-            if let Ok(summaries) = store.list(&field.name) {
-                for summary in summaries {
-                    if let Ok(trajectory) = store.load(&summary.id) {
-                        all_trajectories.push(trajectory);
-                    }
-                }
-            }
+    for traj_id in &eval_run.trajectory_ids {
+        if let Ok(trajectory) = traj_store.load(traj_id) {
+            all_trajectories.push(trajectory);
         }
     }
 
     if all_trajectories.is_empty() {
-        anyhow::bail!("No trajectories found for eval directory");
+        anyhow::bail!("No trajectories found for eval run: {}", eval_run.id);
     }
 
-    // Sort by started_at timestamp (most recent first)
-    all_trajectories.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+    let eval_dir = PathBuf::from(&eval_run.eval_dir);
 
-    // Generate HTML dashboard first to get its filename
+    // Generate HTML dashboard
     let html = templates::eval::generate_eval_html(&eval_dir, &all_trajectories);
     let filename = common::get_output_filename("eval");
     let output_path = common::write_and_open(html, filename.clone(), auto_open)?;
 
-    // Generate individual trajectory HTML files for all trajectories with back links
+    // Generate individual trajectory HTML files with back links
     println!("Generating trajectory viewers...");
     let output_dir = common::get_output_dir()?;
     for trajectory in &all_trajectories {
@@ -90,7 +87,7 @@ pub fn view_eval(eval_dir: PathBuf, auto_open: bool) -> Result<()> {
         std::fs::write(&traj_path, traj_html)?;
     }
 
-    println!("HTML eval dashboard generated:");
+    println!("HTML eval dashboard generated (eval run {}):", eval_run.id);
     println!("  {}", output_path.display());
     println!("  Generated {} trajectory viewers", all_trajectories.len());
 

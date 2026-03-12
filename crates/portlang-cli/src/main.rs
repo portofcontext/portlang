@@ -153,26 +153,18 @@ enum Commands {
         #[arg(short = 'p', long)]
         parent_field: Option<PathBuf>,
 
+        /// Resume a previous eval run, skipping fields that already passed
+        #[arg(long)]
+        resume: Option<String>,
+
         /// Generate HTML dashboard instead of CLI output
         #[arg(long)]
         html: bool,
     },
-    /// List trajectories
+    /// List trajectories and eval runs
     List {
-        /// Field name to filter by (optional)
-        field_name: Option<String>,
-
-        /// Show only converged trajectories
-        #[arg(long)]
-        converged: bool,
-
-        /// Show only failed trajectories
-        #[arg(short = 'f', long)]
-        failed: bool,
-
-        /// Limit number of results
-        #[arg(short = 'l', long)]
-        limit: Option<usize>,
+        #[command(subcommand)]
+        subcommand: ListSubcommand,
     },
     /// Replay a trajectory step-by-step
     Replay {
@@ -230,6 +222,36 @@ enum Commands {
 }
 
 #[derive(Subcommand)]
+enum ListSubcommand {
+    /// List trajectories
+    Trajectories {
+        /// Field name to filter by (optional)
+        field_name: Option<String>,
+
+        /// Show only converged trajectories
+        #[arg(long)]
+        converged: bool,
+
+        /// Show only failed trajectories
+        #[arg(short = 'f', long)]
+        failed: bool,
+
+        /// Limit number of results
+        #[arg(short = 'l', long)]
+        limit: Option<usize>,
+    },
+    /// List eval runs
+    Evals {
+        /// Filter by directory (substring match)
+        dir: Option<String>,
+
+        /// Limit number of results
+        #[arg(short = 'l', long)]
+        limit: Option<usize>,
+    },
+}
+
+#[derive(Subcommand)]
 enum ViewSubcommand {
     /// View a single trajectory
     Trajectory {
@@ -242,8 +264,8 @@ enum ViewSubcommand {
     },
     /// View eval results dashboard
     Eval {
-        /// Directory containing field.toml files
-        directory: PathBuf,
+        /// Eval run ID or directory path
+        id_or_dir: String,
 
         /// Don't automatically open in browser
         #[arg(long)]
@@ -356,23 +378,27 @@ async fn main() {
             runs,
             parent_field,
         } => commands::converge::converge_command(field_path, runs, parent_field).await,
+        Commands::List { subcommand } => match subcommand {
+            ListSubcommand::Trajectories {
+                field_name,
+                converged,
+                failed,
+                limit,
+            } => commands::list::list_command(field_name, converged, failed, limit),
+            ListSubcommand::Evals { dir, limit } => commands::evals::evals_command(dir, limit),
+        },
         Commands::Eval {
             directory,
             parent_field,
+            resume,
             html,
         } => {
             if html {
-                commands::view::view_eval(directory, true)
+                commands::view::view_eval(directory.to_string_lossy().to_string(), true)
             } else {
-                commands::eval::eval_command(directory, parent_field).await
+                commands::eval::eval_command(directory, parent_field, resume).await
             }
         }
-        Commands::List {
-            field_name,
-            converged,
-            failed,
-            limit,
-        } => commands::list::list_command(field_name, converged, failed, limit),
         Commands::Replay {
             trajectory_id,
             format,
@@ -413,8 +439,8 @@ async fn main() {
                 trajectory_id,
                 no_open,
             } => commands::view::view_trajectory(trajectory_id, !no_open),
-            ViewSubcommand::Eval { directory, no_open } => {
-                commands::view::view_eval(directory, !no_open)
+            ViewSubcommand::Eval { id_or_dir, no_open } => {
+                commands::view::view_eval(id_or_dir, !no_open)
             }
             ViewSubcommand::Diff {
                 trajectory_a,

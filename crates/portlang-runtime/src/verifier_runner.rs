@@ -262,6 +262,7 @@ async fn run_json_verifier(
                         format!("JSON schema validation failed:\n{}", messages.join("\n")),
                         1,
                     )
+                    .with_schema(schema_value.clone())
                 } else {
                     VerifierResult::new(
                         verifier.name.clone(),
@@ -270,6 +271,7 @@ async fn run_json_verifier(
                         String::new(),
                         0,
                     )
+                    .with_schema(schema_value.clone())
                 }
             }
             Err(e) => VerifierResult::new(
@@ -278,7 +280,8 @@ async fn run_json_verifier(
                 String::new(),
                 format!("Invalid JSON schema: {}", e),
                 1,
-            ),
+            )
+            .with_schema(schema_value.clone()),
         }
     } else {
         VerifierResult::new(

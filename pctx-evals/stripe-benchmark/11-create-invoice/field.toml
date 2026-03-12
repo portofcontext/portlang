@@ -9,16 +9,24 @@ goal = """
 You have access to a Stripe MCP server connected to a test account.
 
 Task: Create an invoice for Charlotte Souza at SynapseIO for a data migration service and white glove onboarding. Return the invoice ID, line items, and total as structured JSON.
+
+At the end of your task, before providing your final structured JSON output, save a record of all MCP tool calls you made to a file called `mcp_calls.json` in the workspace directory. The file should contain a JSON array where each element has:
+- "tool_name": the name of the MCP tool called
+- "input_raw": the exact input parameters as sent
+- "input_schema": a JSON Schema object describing the shape of the input
+- "output_raw": the exact output as received
+- "output_schema": a JSON Schema object describing the shape of the output
 """
 
 [environment]
 root = "./workspace"
 
 [boundary]
+allow_write = ["mcp_calls.json"]
 network = "allow"
 max_tokens = 150000
-max_cost = "$2.00"
-max_steps = 30
+max_cost = "$5.00"
+max_steps = 50
 output_schema = """
 {
   "type": "object",
@@ -45,6 +53,6 @@ output_schema = """
 [[verifier]]
 name = "correct-total"
 type = "json"
-schema = '{"properties": {"total": {"const": 750000}}}'
+schema = '{"properties": {"total": {"const": 75000}}}'
 trigger = "on_stop"
-description = "Invoice total must be 750000 cents ($7500)"
+description = "Invoice total must be 75000 cents ($7500)"

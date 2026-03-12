@@ -25,7 +25,7 @@ impl OpenRouterClient {
     /// Create a new client with explicit API key and base URL
     pub fn new(api_key: String, base_url: String) -> Result<Self> {
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(300))
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
