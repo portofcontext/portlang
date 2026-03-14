@@ -4748,7 +4748,7 @@ dependencies = [
 
 [[package]]
 name = "portlang"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4777,7 +4777,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-adapt"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "chrono",
  "portlang-core",
@@ -4788,7 +4788,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-check"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "glob",
  "portlang-config",
@@ -4798,7 +4798,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-config"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "dirs",
@@ -4829,7 +4829,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4842,14 +4842,14 @@ dependencies = [
 
 [[package]]
 name = "portlang-pipeline"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "portlang-core",
 ]
 
 [[package]]
 name = "portlang-provider-anthropic"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4863,14 +4863,14 @@ dependencies = [
 
 [[package]]
 name = "portlang-provider-openai"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "portlang-core",
 ]
 
 [[package]]
 name = "portlang-provider-openrouter"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4886,7 +4886,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-runtime"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4914,7 +4914,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-trajectory"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "anyhow",
  "chrono",
