@@ -49,6 +49,7 @@ mod tests {
                     },
                     "required": ["path"]
                 }),
+                None,
                 callback,
             )
             .unwrap();
@@ -104,6 +105,7 @@ mod tests {
                     },
                     "required": ["filepath"]
                 }),
+                None,
                 callback,
             )
             .unwrap();

@@ -3,7 +3,7 @@ use chrono::Utc;
 use portlang_config::{parse_field_with_parent, parse_parent_config};
 use portlang_provider_anthropic::AnthropicProvider;
 use portlang_provider_openrouter::OpenRouterProvider;
-use portlang_runtime::{run_field, ModelProvider};
+use portlang_runtime::{run_field, validate_field_config, ModelProvider};
 use portlang_trajectory::{EvalRun, EvalRunStore, FilesystemStore, TrajectoryStore};
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -125,6 +125,16 @@ pub async fn eval_command(
                 return Err(e.into());
             }
         };
+
+        if let Err(e) = validate_field_config(&field) {
+            eprintln!(
+                "\n✗ Fatal error: Invalid configuration in {}",
+                path.display()
+            );
+            eprintln!("  Error: {}", e);
+            eprintln!("\nEvaluation aborted. Fix the field configuration and try again.");
+            return Err(e);
+        }
 
         if skip_fields.contains(&field.name) {
             continue;

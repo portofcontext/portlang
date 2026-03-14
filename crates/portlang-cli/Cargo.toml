@@ -15,7 +15,7 @@ path = "src/main.rs"
 [dependencies]
 portlang-core = { workspace = true }
 portlang-config = { workspace = true }
-portlang-runtime = { workspace = true }
+portlang-runtime = { workspace = true, features = ["code-mode"] }
 portlang-trajectory = { workspace = true }
 portlang-adapt = { workspace = true }
 portlang-provider-anthropic = { workspace = true }

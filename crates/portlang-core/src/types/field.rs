@@ -74,6 +74,18 @@ pub struct Tool {
     /// MCP transport: "stdio", "http", or "sse"
     #[serde(default)]
     pub transport: Option<McpTransport>,
+
+    /// Whitelist: only expose these tool names from the MCP server
+    #[serde(default)]
+    pub include_tools: Option<Vec<String>>,
+
+    /// Blacklist: exclude these tool names from the MCP server
+    #[serde(default)]
+    pub exclude_tools: Option<Vec<String>>,
+
+    /// Path to a JSON patch file (relative to field.toml directory) with per-tool patches
+    #[serde(default)]
+    pub patch_file: Option<String>,
 }
 
 /// MCP server transport type
@@ -98,6 +110,20 @@ pub struct McpServer {
     pub name: String,
     pub transport: McpTransport,
 }
+
+/// Per-tool patch — overrides/extends what the MCP server reports
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct McpToolPatch {
+    /// Override the tool description from the MCP server
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Inject an output schema (most MCP servers omit this; patches supply it for code mode)
+    #[serde(default)]
+    pub output_schema: Option<serde_json::Value>,
+}
+
+/// Map of MCP tool name → patch (the patch file format)
+pub type McpPatchMap = HashMap<String, McpToolPatch>;
 
 /// A field defines a complete agent task configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

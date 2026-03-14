@@ -18,6 +18,9 @@ pub struct McpToolHandler {
     tool_name: String,
     description: String,
     input_schema: Value,
+    /// Output schema injected via patch files (stored for future ToolHandler trait extension)
+    #[allow(dead_code)]
+    output_schema: Option<Value>,
     client: Arc<RwLock<McpClient>>,
 }
 
@@ -33,6 +36,7 @@ impl McpToolHandler {
             tool_name: tool_def.name,
             description: tool_def.description.unwrap_or_default(),
             input_schema: tool_def.input_schema,
+            output_schema: tool_def.output_schema,
             client,
         }
     }

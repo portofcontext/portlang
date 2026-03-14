@@ -61,8 +61,12 @@ impl ToolHandler for BashHandler {
 
         // Create a marker file to track writes
         let marker_path = root.join(".portlang_bash_marker");
-        fs::File::create(&marker_path)
-            .map_err(|e| SandboxError::ToolError(format!("Failed to create marker file: {}", e)))?;
+        fs::File::create(&marker_path).map_err(|_| {
+            SandboxError::ToolError(format!(
+                "Cannot run bash in workspace '{}': directory does not exist",
+                root.display()
+            ))
+        })?;
         let marker_mtime = fs::metadata(&marker_path)
             .and_then(|m| m.modified())
             .map_err(|e| SandboxError::ToolError(format!("Failed to read marker mtime: {}", e)))?;

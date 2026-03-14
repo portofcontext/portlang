@@ -47,6 +47,7 @@ mod tests {
                     "read".to_string(),
                     Some("Read the contents of a file".to_string()),
                     ReadHandler.input_schema(),
+                    None,
                     callback,
                 )
                 .unwrap();
@@ -73,6 +74,7 @@ mod tests {
                     "write".to_string(),
                     Some("Write content to a file".to_string()),
                     WriteHandler.input_schema(),
+                    None,
                     callback,
                 )
                 .unwrap();
@@ -102,6 +104,7 @@ mod tests {
                     "glob".to_string(),
                     Some("Find files matching a glob pattern".to_string()),
                     GlobHandler.input_schema(),
+                    None,
                     callback,
                 )
                 .unwrap();

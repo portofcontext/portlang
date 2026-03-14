@@ -263,6 +263,8 @@ impl McpClient {
                 description: tool.description.map(|d| d.to_string()),
                 // input_schema is already a JsonObject (Map<String, Value>), convert to Value
                 input_schema: serde_json::Value::Object(tool.input_schema.as_ref().clone()),
+                // output_schema is optional in MCP spec; most servers omit it — injected via patches
+                output_schema: None,
             })
             .collect::<Vec<_>>();
 
@@ -296,12 +298,10 @@ impl McpClient {
         let args_obj = arguments.as_object().cloned();
 
         // Build the request params
-        let params = CallToolRequestParams {
-            meta: None,
-            name: std::borrow::Cow::Owned(tool_name.to_string()),
-            arguments: args_obj,
-            task: None,
-        };
+        let mut params = CallToolRequestParams::new(tool_name.to_string());
+        if let Some(args) = args_obj {
+            params = params.with_arguments(args);
+        }
 
         // Execute tool with timeout
         let call_result = tokio::time::timeout(

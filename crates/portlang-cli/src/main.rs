@@ -312,7 +312,18 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive(tracing::Level::INFO.into()),
+                .add_directive(tracing::Level::WARN.into())
+                .add_directive("portlang_adapt=info".parse().unwrap())
+                .add_directive("portlang_check=info".parse().unwrap())
+                .add_directive("portlang_cli=info".parse().unwrap())
+                .add_directive("portlang_config=info".parse().unwrap())
+                .add_directive("portlang_core=info".parse().unwrap())
+                .add_directive("portlang_pipeline=info".parse().unwrap())
+                .add_directive("portlang_provider_anthropic=info".parse().unwrap())
+                .add_directive("portlang_provider_openai=info".parse().unwrap())
+                .add_directive("portlang_provider_openrouter=info".parse().unwrap())
+                .add_directive("portlang_runtime=info".parse().unwrap())
+                .add_directive("portlang_trajectory=info".parse().unwrap()),
         )
         .init();
 

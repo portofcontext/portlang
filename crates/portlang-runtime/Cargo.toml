@@ -24,16 +24,20 @@ glob = { workspace = true }
 tracing = { workspace = true }
 uuid = { version = "1.11", features = ["v4"] }
 shell-escape = "0.1"
-rmcp = { version = "0.14.0", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "1.2.0", features = [
+    "client",
+    "transport-child-process",
+    "transport-streamable-http-client-reqwest",
+] }
 shellexpand = "3.1"
-reqwest = "0.12"
-jsonschema = "0.18"
+reqwest = "0.13.2"
+jsonschema = "0.45.0"
 strsim = "0.11"
-fastembed = "4"
+fastembed = "5.12.1"
 dirs = "6.0"
 
 # Optional: Code Mode support
-pctx_code_mode = { git = "https://github.com/portofcontext/pctx", branch = "ts-sidecar", optional = true }
+pctx_code_mode = { version = "0.3.0", optional = true }
 
 [dev-dependencies]
 tempfile = "3.27.0"

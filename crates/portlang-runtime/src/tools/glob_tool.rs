@@ -19,7 +19,13 @@ pub fn glob_files(root: &Path, pattern: &str) -> Result<Vec<String>> {
     })?;
 
     let mut results = Vec::new();
-    let canonical_root = std::fs::canonicalize(root).map_err(SandboxError::Io)?;
+    let canonical_root = std::fs::canonicalize(root).map_err(|_| {
+        SandboxError::ToolError(format!(
+            "Cannot search for '{}': workspace has no files (root '{}' does not exist)",
+            pattern,
+            root.display()
+        ))
+    })?;
 
     for path in paths {
         let path = path.map_err(|e| SandboxError::ToolError(format!("Glob error: {}", e)))?;

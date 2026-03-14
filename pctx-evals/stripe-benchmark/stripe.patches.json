@@ -1,0 +1,269 @@
+{
+  "retrieve_balance": {
+    "output_schema": {
+      "type": "object",
+      "required": ["available", "pending"],
+      "properties": {
+        "available": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["amount", "currency"],
+            "properties": {
+              "amount":   { "type": "integer" },
+              "currency": { "type": "string" }
+            }
+          }
+        },
+        "pending": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["amount", "currency"],
+            "properties": {
+              "amount":   { "type": "integer" },
+              "currency": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "list_customers": {
+    "output_schema": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" }
+        }
+      }
+    }
+  },
+  "create_customer": {
+    "output_schema": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string" }
+      }
+    }
+  },
+  "list_products": {
+    "output_schema": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name"],
+        "properties": {
+          "id":          { "type": "string" },
+          "name":        { "type": "string" },
+          "type":        { "type": "string" },
+          "description": { "type": "string" }
+        }
+      }
+    }
+  },
+  "create_product": {
+    "output_schema": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id":          { "type": "string" },
+        "name":        { "type": "string" },
+        "active":      { "type": "boolean" },
+        "type":        { "type": "string" },
+        "description": { "type": "string" }
+      }
+    }
+  },
+  "list_prices": {
+    "output_schema": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "currency", "product"],
+        "properties": {
+          "id":        { "type": "string" },
+          "amount":    { "type": "integer", "description": "Price in cents (e.g. 150000 = $1500)" },
+          "currency":  { "type": "string" },
+          "product":   { "type": "string" },
+          "type":      { "type": "string" },
+          "recurring": { "type": "object" }
+        }
+      }
+    }
+  },
+  "create_price": {
+    "output_schema": {
+      "type": "object",
+      "required": ["id", "currency", "product"],
+      "properties": {
+        "id":          { "type": "string" },
+        "currency":    { "type": "string" },
+        "product":     { "type": "string" },
+        "unit_amount": { "type": "integer", "description": "Price in cents. Note: the input param is also called 'unit_amount'." },
+        "type":        { "type": "string" },
+        "recurring":   { "type": "object" }
+      }
+    }
+  },
+  "list_subscriptions": {
+    "output_schema": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "customer", "status"],
+        "properties": {
+          "id":       { "type": "string" },
+          "customer": { "type": "string" },
+          "status":   { "type": "string" },
+          "items": {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id":       { "type": "string" },
+                    "quantity": { "type": "integer" },
+                    "price": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "list_disputes": {
+    "output_schema": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "charge"],
+        "properties": {
+          "id":       { "type": "string" },
+          "charge":   { "type": "string" },
+          "amount":   { "type": "integer" },
+          "currency": { "type": "string" },
+          "reason":   { "type": "string" },
+          "status":   { "type": "string" }
+        }
+      }
+    }
+  },
+  "list_invoices": {
+    "output_schema": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "customer"],
+        "properties": {
+          "id":               { "type": "string" },
+          "customer":         { "type": "string" },
+          "status":           { "type": "string" },
+          "billing_reason":   { "type": "string" },
+          "amount_due":       { "type": "integer" },
+          "amount_paid":      { "type": "integer" },
+          "amount_remaining": { "type": "integer" },
+          "currency":         { "type": "string" }
+        }
+      }
+    }
+  },
+  "create_invoice": {
+    "output_schema": {
+      "type": "object",
+      "required": ["id", "customer", "status"],
+      "properties": {
+        "id":       { "type": "string" },
+        "customer": { "type": "string" },
+        "status":   { "type": "string" },
+        "url":      { "type": "string" }
+      }
+    }
+  },
+  "create_invoice_item": {
+    "output_schema": {
+      "type": "object",
+      "required": ["id", "invoice"],
+      "properties": {
+        "id":      { "type": "string" },
+        "invoice": { "type": "string" }
+      }
+    }
+  },
+  "finalize_invoice": {
+    "output_schema": {
+      "type": "object",
+      "required": ["id", "status"],
+      "properties": {
+        "id":       { "type": "string" },
+        "status":   { "type": "string" },
+        "url":      { "type": "string" },
+        "customer": { "type": "string" }
+      }
+    }
+  },
+  "list_payment_intents": {
+    "output_schema": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "amount", "currency", "status"],
+        "properties": {
+          "id":       { "type": "string" },
+          "amount":   { "type": "integer" },
+          "currency": { "type": "string" },
+          "status":   { "type": "string" },
+          "customer": { "type": "string" }
+        }
+      }
+    }
+  },
+  "create_payment_link": {
+    "output_schema": {
+      "type": "object",
+      "required": ["id", "url"],
+      "properties": {
+        "id":  { "type": "string" },
+        "url": { "type": "string" }
+      }
+    }
+  },
+  "list_coupons": {
+    "output_schema": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id":          { "type": "string" },
+          "name":        { "type": "string" },
+          "percent_off": { "type": "number" },
+          "amount_off":  { "type": "integer" },
+          "currency":    { "type": "string" },
+          "duration":    { "type": "string" }
+        }
+      }
+    }
+  },
+  "create_coupon": {
+    "output_schema": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string" }
+      }
+    }
+  }
+}

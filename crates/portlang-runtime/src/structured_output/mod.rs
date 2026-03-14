@@ -70,12 +70,10 @@ pub fn parse_and_coerce(text: &str, schema: &Value) -> Result<CoercedValue> {
 /// Validate a `Value` against a JSON Schema strictly (no coercion).
 /// Used for the final hard validation after coercion.
 pub fn validate_against_schema(value: &Value, schema: &Value) -> Result<()> {
-    let schema_static: &'static Value = Box::leak(Box::new(schema.clone()));
-    let compiled = jsonschema::JSONSchema::compile(schema_static)
+    let compiled = jsonschema::validator_for(schema)
         .map_err(|e| anyhow!("Failed to compile JSON schema: {}", e))?;
-    let result = compiled.validate(value);
-    if let Err(errors) = result {
-        let messages: Vec<String> = errors.map(|e| e.to_string()).collect();
+    let messages: Vec<String> = compiled.iter_errors(value).map(|e| e.to_string()).collect();
+    if !messages.is_empty() {
         return Err(anyhow!(
             "Schema validation failed:\n{}",
             messages.join("\n")

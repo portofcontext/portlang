@@ -250,6 +250,12 @@ pub struct RawTool {
     pub headers: Option<HashMap<String, String>>,
     #[serde(default)]
     pub transport: Option<String>,
+    #[serde(default)]
+    pub include_tools: Option<Vec<String>>,
+    #[serde(default)]
+    pub exclude_tools: Option<Vec<String>>,
+    #[serde(default)]
+    pub patch_file: Option<String>,
 }
 
 fn deserialize_optional_schema<'de, D>(

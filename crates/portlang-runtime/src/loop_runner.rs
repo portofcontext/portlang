@@ -1,7 +1,7 @@
 use crate::context_window::ContextWindow;
 use crate::environment::EnvironmentContext;
 use crate::loop_detection::LoopDetector;
-use crate::mcp::{McpServerManager, McpToolHandler};
+use crate::mcp::{apply_patches, load_patch_map, McpServerManager, McpToolHandler};
 use crate::provider::{ContentBlock, ModelProvider, Tool};
 use crate::sandbox::{create_sandbox, BoundaryAnalyzer, ContextTracer};
 use crate::tools::{
@@ -32,6 +32,20 @@ pub struct AgentView {
     pub env_context: EnvironmentContext,
     /// Sandbox (needed internally for execution)
     pub(crate) sandbox: Box<dyn crate::sandbox::Sandbox>,
+}
+
+/// Validate field configuration without starting any servers or running the agent.
+///
+/// Catches configuration mistakes (e.g. missing patch files) early so that
+/// `portlang eval` can abort before wasting time on MCP connections.
+pub fn validate_field_config(field: &Field) -> anyhow::Result<()> {
+    for tool in field.tools.iter().filter(|t| t.tool_type == "mcp") {
+        if tool.patch_file.is_some() {
+            load_patch_map(tool.patch_file.as_deref(), field.config_dir.as_deref())
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+        }
+    }
+    Ok(())
 }
 
 /// Prepare what the agent will see for a field
@@ -100,6 +114,10 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
         }
     }
 
+    // Capture built-in tool definitions before MCP tools are registered,
+    // so code mode can register them separately under "Tools" namespace.
+    let builtin_tool_definitions = registry.tool_definitions();
+
     // Build McpServer list from mcp-type tools
     let mcp_servers: Vec<McpServer> = field
         .tools
@@ -112,8 +130,27 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
         })
         .collect();
 
-    // Initialize MCP servers and register their tools
+    // Build server name → tool config lookup for patch/filter access
+    let server_tool_configs: std::collections::HashMap<String, &portlang_core::Tool> = field
+        .tools
+        .iter()
+        .filter(|t| t.tool_type == "mcp")
+        .filter_map(|t| t.name.as_ref().map(|n| (n.clone(), t)))
+        .collect();
+
+    // Load patch maps before connecting to MCP servers so a bad patch_file path
+    // fails fast without wasting time on MCP connections.
+    let mut patch_maps: std::collections::HashMap<String, portlang_core::McpPatchMap> =
+        std::collections::HashMap::new();
+    for (name, cfg) in &server_tool_configs {
+        let pm = load_patch_map(cfg.patch_file.as_deref(), field.config_dir.as_deref())
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        patch_maps.insert(name.clone(), pm);
+    }
+
+    // Initialize MCP servers and collect patched tool definitions
     let mut mcp_manager = McpServerManager::new();
+    let mut mcp_tools: Vec<(String, crate::mcp::McpToolDefinition)> = Vec::new();
 
     if !mcp_servers.is_empty() {
         tracing::info!("Initializing {} MCP server(s)", mcp_servers.len());
@@ -122,15 +159,27 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
             .initialize_servers(&mcp_servers, field.config_dir.clone(), container_id.clone())
             .await?;
 
-        // Discover and register tools from all MCP servers
-        let mcp_tools = mcp_manager.discover_tools().await?;
+        // Discover tools, apply filtering and patches, collect for reuse
+        let empty_map = portlang_core::McpPatchMap::new();
+        let raw_tools = mcp_manager.discover_tools().await?;
+        for (server_name, tool_def) in raw_tools {
+            let patched = if let Some(cfg) = server_tool_configs.get(&server_name) {
+                let pm = patch_maps.get(&server_name).unwrap_or(&empty_map);
+                apply_patches(vec![tool_def], cfg, pm)
+            } else {
+                vec![tool_def]
+            };
+            for t in patched {
+                mcp_tools.push((server_name.clone(), t));
+            }
+        }
 
-        for (server_name, tool_def) in mcp_tools {
+        // Register patched tools in ToolRegistry
+        for (server_name, tool_def) in &mcp_tools {
             let client = mcp_manager
-                .get_client(&server_name)
+                .get_client(server_name)
                 .ok_or_else(|| anyhow::anyhow!("MCP server not found: {}", server_name))?;
 
-            // Register in ToolRegistry
             let handler =
                 McpToolHandler::new(server_name.clone(), tool_def.clone(), client.clone());
             registry.register(Arc::new(handler));
@@ -163,11 +212,9 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
             // Create code mode handler
             let mut code_mode_handler = CodeModeHandler::new();
 
-            // Get all built-in and custom tool definitions
-            let tool_definitions = registry.tool_definitions();
-
             // Register built-in and custom tools under "Tools" namespace
-            for def in tool_definitions {
+            // (captured before MCP tools were registered to avoid including them here)
+            for def in builtin_tool_definitions {
                 let tool_name = def.name.clone();
                 let registry_clone = registry.clone();
                 let working_dir = env_context.working_directory.clone();
@@ -196,6 +243,7 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
                         def.name.clone(),
                         Some(def.description.clone()),
                         def.input_schema.clone(),
+                        None, // built-in tools have no output schema
                         callback,
                     )
                     .map_err(|e| anyhow::anyhow!("Failed to register tool: {}", e))?;
@@ -203,46 +251,64 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
             }
 
             // Register MCP tools under their server name namespaces
-            if !mcp_servers.is_empty() {
-                let mcp_tools = mcp_manager.discover_tools().await?;
-                for (server_name, tool_def) in mcp_tools {
-                    let client = mcp_manager
-                        .get_client(&server_name)
-                        .ok_or_else(|| anyhow::anyhow!("MCP server not found: {}", server_name))?;
+            // Uses already-patched mcp_tools (with filtering + output_schema injected)
+            for (server_name, tool_def) in &mcp_tools {
+                let client = mcp_manager
+                    .get_client(server_name)
+                    .ok_or_else(|| anyhow::anyhow!("MCP server not found: {}", server_name))?;
 
-                    let tool_name = tool_def.name.clone();
-                    let tool_description = tool_def.description.clone();
-                    let input_schema = tool_def.input_schema.clone();
+                let tool_name = tool_def.name.clone();
+                let tool_description = tool_def.description.clone();
+                let input_schema = tool_def.input_schema.clone();
+                let output_schema = tool_def.output_schema.clone();
 
-                    let callback: CodeModeCallback =
-                        Arc::new(move |args: Option<serde_json::Value>| {
-                            let client = client.clone();
-                            let name = tool_name.clone();
-                            Box::pin(async move {
-                                let input_value = args.unwrap_or(serde_json::json!({}));
-                                let client_guard = client.read().await;
-                                client_guard
-                                    .call_tool(&name, input_value)
-                                    .await
-                                    .map_err(|e| format!("MCP tool error: {}", e))
-                            })
-                        });
+                let callback: CodeModeCallback =
+                    Arc::new(move |args: Option<serde_json::Value>| {
+                        let client = client.clone();
+                        let name = tool_name.clone();
+                        Box::pin(async move {
+                            let input_value = args.unwrap_or(serde_json::json!({}));
+                            let client_guard = client.read().await;
+                            let result = client_guard
+                                .call_tool(&name, input_value)
+                                .await
+                                .map_err(|e| format!("MCP tool error: {}", e))?;
 
-                    code_mode_handler
-                        .register_tool(
-                            server_name.clone(),
-                            tool_def.name.clone(),
-                            tool_description,
-                            input_schema,
-                            callback,
-                        )
-                        .map_err(|e| anyhow::anyhow!("Failed to register MCP tool: {}", e))?;
-                    tracing::debug!(
-                        "Registered {} in {} namespace for code mode",
-                        tool_def.name,
-                        server_name
-                    );
-                }
+                            // Unwrap the MCP content envelope: extract text content and parse
+                            // as JSON so TypeScript code gets the actual data, not the protocol
+                            // wrapper {"content": [{"type": "text", "text": "..."}]}.
+                            if let Some(arr) = result.get("content").and_then(|c| c.as_array()) {
+                                let text: String = arr
+                                    .iter()
+                                    .filter_map(|item| {
+                                        item.get("text").and_then(|t| t.as_str()).map(String::from)
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+                                if !text.is_empty() {
+                                    return Ok(serde_json::from_str(&text)
+                                        .unwrap_or(serde_json::Value::String(text)));
+                                }
+                            }
+                            Ok(result)
+                        })
+                    });
+
+                code_mode_handler
+                    .register_tool(
+                        server_name.clone(),
+                        tool_def.name.clone(),
+                        tool_description,
+                        input_schema,
+                        output_schema,
+                        callback,
+                    )
+                    .map_err(|e| anyhow::anyhow!("Failed to register MCP tool: {}", e))?;
+                tracing::debug!(
+                    "Registered {} in {} namespace for code mode",
+                    tool_def.name,
+                    server_name
+                );
             }
 
             // Get TypeScript definitions for system prompt
@@ -254,9 +320,7 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
             prompt.push_str(
                 "You have access to a TypeScript execution environment via the `code_mode` tool. ",
             );
-            prompt.push_str(
-                "Use this to batch multiple operations efficiently and reduce token usage.\n\n",
-            );
+            prompt.push_str("Use this to batch multiple tool calls / chain actions.\n\n");
 
             prompt.push_str("## How to Use Code Mode\n\n");
             prompt.push_str("Your code must define an async `run()` function that will be called automatically:\n\n");
@@ -273,12 +337,14 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
 
             prompt.push_str("**Key Rules:**\n");
             prompt.push_str("- MUST define `async function run()` - do not call it yourself\n");
-            prompt.push_str("- Batch multiple operations in one code_mode call instead of calling tools individually\n");
+            prompt.push_str("- Write the COMPLETE end-to-end logic in a single `run()` function — fetch data, make decisions, and take actions all in one script using sequential `await` calls.\n");
+            prompt.push_str(
+                "- Only make multiple code_mode calls if the output schemas are not defined or if first one throws a runtime error.\n",
+            );
             prompt.push_str("- Do NOT write comments\n");
             prompt.push_str("- Function results are JavaScript objects - access properties directly (do NOT use JSON.parse)\n");
             prompt.push_str("- Only registered SDK functions are available - no fetch(), fs, or other Deno/Node APIs\n");
-            prompt.push_str("- Filter/transform large data IN YOUR CODE before returning to minimize token usage\n");
-            prompt.push_str("- Use console.log() for debugging - it appears in the result\n\n");
+            prompt.push_str("- Filter/transform large data IN YOUR CODE before returning\n\n");
 
             prompt.push_str("## Available Functions\n\n");
             prompt.push_str("```typescript\n");

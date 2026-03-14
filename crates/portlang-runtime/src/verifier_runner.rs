@@ -250,11 +250,13 @@ async fn run_json_verifier(
     };
 
     if let Some(schema_value) = schema {
-        let schema_static: &'static serde_json::Value = Box::leak(Box::new(schema_value.clone()));
-        match jsonschema::JSONSchema::compile(schema_static) {
+        match jsonschema::validator_for(&schema_value) {
             Ok(compiled) => {
-                if let Err(errors) = compiled.validate(&parsed) {
-                    let messages: Vec<String> = errors.map(|e| e.to_string()).collect();
+                let messages: Vec<String> = compiled
+                    .iter_errors(&parsed)
+                    .map(|e| e.to_string())
+                    .collect();
+                if !messages.is_empty() {
                     VerifierResult::new(
                         verifier.name.clone(),
                         false,
@@ -402,7 +404,7 @@ async fn get_local_embeddings_score(
             .join("portlang")
             .join("embeddings");
 
-        let model = TextEmbedding::try_new(
+        let mut model = TextEmbedding::try_new(
             InitOptions::new(embedding_model).with_cache_dir(cache_dir),
         )
         .map_err(|e| format!("Failed to load embedding model: {}", e))?;

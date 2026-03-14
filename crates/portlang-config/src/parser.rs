@@ -44,6 +44,15 @@ pub fn parse_parent_config(path: impl AsRef<Path>) -> Result<Option<ParentConfig
         return Ok(None);
     }
 
+    let abs_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| FieldParseError::InvalidField(e.to_string()))?
+            .join(path)
+    };
+    let parent_dir = abs_path.parent().map(|p| p.to_path_buf());
+
     let content = fs::read_to_string(path)?;
     let raw: RawParentConfig = toml::from_str(&content).map_err(|e| {
         FieldParseError::InvalidField(format!(
@@ -53,9 +62,23 @@ pub fn parse_parent_config(path: impl AsRef<Path>) -> Result<Option<ParentConfig
         ))
     })?;
 
+    // Resolve patch_file paths relative to the parent field.toml's directory so
+    // that children inheriting these tools don't re-resolve them from their own dirs.
+    let tools = raw
+        .tool
+        .into_iter()
+        .map(|mut t| {
+            if let (Some(pf), Some(ref dir)) = (t.patch_file.as_ref(), &parent_dir) {
+                let resolved = normalize_path(&dir.join(pf));
+                t.patch_file = Some(resolved.to_string_lossy().into_owned());
+            }
+            t
+        })
+        .collect();
+
     Ok(Some(ParentConfig {
         model: raw.model,
-        tools: raw.tool,
+        tools,
         boundary: raw.boundary,
         code_mode_enabled: raw.code_mode.map(|cm| cm.enabled),
     }))
@@ -421,6 +444,9 @@ fn convert_raw_field(
                             url: None,
                             headers: None,
                             transport: None,
+                            include_tools: None,
+                            exclude_tools: None,
+                            patch_file: None,
                         });
                     } else {
                         // Extract all functions from file
@@ -447,6 +473,9 @@ fn convert_raw_field(
                                 url: None,
                                 headers: None,
                                 transport: None,
+                                include_tools: None,
+                                exclude_tools: None,
+                                patch_file: None,
                             });
                         }
                     }
@@ -471,6 +500,9 @@ fn convert_raw_field(
                         url: raw_tool.url,
                         headers: raw_tool.headers,
                         transport: None,
+                        include_tools: None,
+                        exclude_tools: None,
+                        patch_file: None,
                     });
                 }
             }
@@ -494,6 +526,9 @@ fn convert_raw_field(
                     url: raw_tool.url,
                     headers: raw_tool.headers,
                     transport: None,
+                    include_tools: None,
+                    exclude_tools: None,
+                    patch_file: None,
                 });
             }
             "mcp" => {
@@ -566,6 +601,14 @@ fn convert_raw_field(
                     }
                 };
 
+                // Validate mutual exclusivity of include_tools and exclude_tools
+                if raw_tool.include_tools.is_some() && raw_tool.exclude_tools.is_some() {
+                    return Err(FieldParseError::InvalidField(format!(
+                        "MCP tool '{}': cannot specify both 'include_tools' and 'exclude_tools'",
+                        mcp_name
+                    )));
+                }
+
                 tools.push(Tool {
                     tool_type: "mcp".to_string(),
                     name: Some(mcp_name),
@@ -580,6 +623,9 @@ fn convert_raw_field(
                     url: None,
                     headers: None,
                     transport: Some(transport),
+                    include_tools: raw_tool.include_tools,
+                    exclude_tools: raw_tool.exclude_tools,
+                    patch_file: raw_tool.patch_file,
                 });
             }
             _ => {
@@ -1045,6 +1091,9 @@ root = "./workspace"
                 url: None,
                 headers: None,
                 transport: None,
+                include_tools: None,
+                exclude_tools: None,
+                patch_file: None,
             }],
             boundary: None,
             code_mode_enabled: None,
