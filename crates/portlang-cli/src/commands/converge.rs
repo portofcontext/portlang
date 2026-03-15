@@ -1,7 +1,8 @@
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 use portlang_adapt::{format_report, AdaptationReport};
-use portlang_config::{parse_field_with_parent, resolve_parent_config};
+use portlang_config::{apply_runtime_context, parse_field_with_parent, resolve_parent_config};
+use portlang_core::RuntimeContext;
 use portlang_provider_anthropic::AnthropicProvider;
 use portlang_provider_openrouter::OpenRouterProvider;
 use portlang_runtime::{run_field, ModelProvider};
@@ -16,6 +17,7 @@ pub async fn converge_command(
     field_path: PathBuf,
     runs: usize,
     parent_field: Option<PathBuf>,
+    ctx: RuntimeContext,
 ) -> Result<()> {
     println!("Convergence analysis: {}", field_path.display());
     println!("Runs: {}", runs);
@@ -23,6 +25,7 @@ pub async fn converge_command(
 
     let parent = resolve_parent_config(&field_path, parent_field.as_ref())?;
     let field = parse_field_with_parent(&field_path, parent.as_ref())?;
+    let field = apply_runtime_context(field, &ctx)?;
     println!("Field: {}", field.name);
 
     if let Some(description) = &field.description {
@@ -67,7 +70,7 @@ pub async fn converge_command(
         };
 
         // Run the field
-        let trajectory = run_field(&field, provider.as_ref()).await?;
+        let trajectory = run_field(&field, provider.as_ref(), &ctx).await?;
 
         // Save trajectory
         store.save(&trajectory)?;

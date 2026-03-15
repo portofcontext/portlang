@@ -126,6 +126,9 @@ Run a field
 ###### **Options:**
 
 * `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
+* `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable, e.g. --var customer_id=123)
+* `--vars <FILE>` — JSON file containing template variables (key→value map)
+* `--input <FILE_OR_JSON>` — Input data to stage into the workspace: path to a file or inline JSON string
 
 
 
@@ -142,6 +145,8 @@ Check a field for errors
 ###### **Options:**
 
 * `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
+* `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable)
+* `--vars <FILE>` — JSON file containing template variables (key→value map)
 
 
 
@@ -161,6 +166,9 @@ Run a field N times and measure convergence reliability
 
   Default value: `10`
 * `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
+* `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable)
+* `--vars <FILE>` — JSON file containing template variables (key→value map)
+* `--input <FILE_OR_JSON>` — Input data to stage into the workspace: path to a file or inline JSON string
 
 
 
@@ -179,6 +187,8 @@ Run all fields in a directory and report aggregate accuracy
 * `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field.toml to inherit from (defaults to <directory>/field.toml if present)
 * `--resume <RESUME>` — Resume a previous eval run, skipping fields that already passed
 * `--html` — Generate HTML dashboard instead of CLI output
+* `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable)
+* `--vars <FILE>` — JSON file containing template variables (key→value map)
 
 
 

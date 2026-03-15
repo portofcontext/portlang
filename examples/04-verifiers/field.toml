@@ -1,5 +1,5 @@
 name = "verifiers"
-description = "Demonstrates verifier types: custom shell, levenshtein, json, and semantic"
+description = "Demonstrates verifier types: custom shell, tool_call, levenshtein, and semantic"
 
 # This example shows how to use both custom shell verifiers and built-in verifier algorithms.
 # Run with:
@@ -44,6 +44,27 @@ command = "test $(ls . | grep -v -E '^(greeting\\.txt|profile\\.json|summary\\.t
 trigger = "on_tool:write"
 description = "Only greeting.txt, profile.json, and summary.txt are allowed in the workspace"
 
+# ── tool_call: inspect write call inputs directly ────────────────────────────
+# Fires after each "write" tool call and checks the path param without touching
+# the sandbox filesystem. Rejects any attempt to write outside allowed filenames.
+[[verifier]]
+type = "tool_call"
+name = "allowed-filename"
+trigger = "on_tool:write"
+field = "/input/path"
+matches = "^(greeting\\.txt|profile\\.json|summary\\.txt)$"
+description = "write path must be one of: greeting.txt, profile.json, summary.txt"
+
+# ── tool_call (on_stop): assert a tool was actually called ───────────────────
+# Scans the full action history at stop time. Catches hallucination — if the
+# agent fakes a tool result without actually invoking the tool, this fails.
+[[verifier]]
+type = "tool_call"
+name = "write-was-called"
+trigger = "on_stop"
+tool = "write"
+description = "agent must have actually called the write tool at least once"
+
 # ── Levenshtein: exact or near-exact text match ──────────────────────────────
 # Passes when the normalized edit-distance similarity is >= threshold.
 # threshold = 1.0 means exact match; lower values allow minor variations.
@@ -56,26 +77,6 @@ threshold = 1.0
 trigger = "on_stop"
 description = "greeting.txt must contain the exact pangram"
 
-# ── JSON: structure validation with schema ────────────────────────────────────
-# Checks that profile.json is valid JSON and matches the required schema.
-[[verifier]]
-type = "json"
-name = "profile-schema"
-file = "profile.json"
-schema = '''
-{
-  "type": "object",
-  "required": ["name", "age", "active"],
-  "properties": {
-    "name":   { "type": "string" },
-    "age":    { "type": "integer", "minimum": 0 },
-    "active": { "type": "boolean" }
-  },
-  "additionalProperties": false
-}
-'''
-trigger = "on_stop"
-description = "profile.json must be valid JSON with name (string), age (integer), active (boolean)"
 
 # ── Semantic: embedding cosine similarity ─────────────────────────────────────
 # Checks that summary.txt is semantically close to the reference description.

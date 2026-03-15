@@ -1,18 +1,26 @@
 use crate::sandbox::Sandbox;
-use portlang_core::{Action, Verifier, VerifierAlgorithm, VerifierResult, VerifierTrigger};
+use portlang_core::{
+    Action, TrajectoryStep, Verifier, VerifierAlgorithm, VerifierResult, VerifierTrigger,
+};
 use strsim::normalized_levenshtein;
 
 /// Run verifiers based on trigger conditions.
 ///
 /// `structured_output` is the validated JSON from `output_schema`, if any.
-/// Verifiers with no `file` field will use this value directly instead of
-/// reading from the workspace filesystem.
+///
+/// `tool_context` is `{input: {...}, output: "..."}` for the current tool call,
+/// used by `tool_call` verifiers with `on_tool:<name>` triggers.
+///
+/// `action_history` is all completed steps so far, used by `tool_call` verifiers
+/// with `on_stop` triggers to assert a tool was actually called.
 pub async fn run_verifiers(
     sandbox: &dyn Sandbox,
     verifiers: &[Verifier],
     action: &Action,
     is_stop: bool,
     structured_output: Option<&serde_json::Value>,
+    tool_context: Option<&serde_json::Value>,
+    action_history: &[TrajectoryStep],
 ) -> Vec<VerifierResult> {
     let mut results = Vec::new();
 
@@ -26,7 +34,14 @@ pub async fn run_verifiers(
         };
 
         if should_run {
-            let result = run_verifier(sandbox, verifier, structured_output).await;
+            let result = run_verifier(
+                sandbox,
+                verifier,
+                structured_output,
+                tool_context,
+                action_history,
+            )
+            .await;
             results.push(result);
         }
     }
@@ -39,11 +54,27 @@ async fn run_verifier(
     sandbox: &dyn Sandbox,
     verifier: &Verifier,
     structured_output: Option<&serde_json::Value>,
+    tool_context: Option<&serde_json::Value>,
+    action_history: &[TrajectoryStep],
 ) -> VerifierResult {
     match &verifier.algorithm {
         VerifierAlgorithm::Shell { command } => {
             run_shell_verifier(sandbox, verifier, command).await
         }
+        VerifierAlgorithm::ToolCall {
+            tool,
+            field,
+            matches,
+            not_matches,
+        } => run_tool_call_verifier(
+            verifier,
+            tool.as_deref(),
+            field.as_deref(),
+            matches.as_deref(),
+            not_matches.as_deref(),
+            tool_context,
+            action_history,
+        ),
         VerifierAlgorithm::Levenshtein {
             file,
             expected,
@@ -55,16 +86,6 @@ async fn run_verifier(
                 file.as_deref(),
                 expected,
                 *threshold,
-                structured_output,
-            )
-            .await
-        }
-        VerifierAlgorithm::Json { file, schema } => {
-            run_json_verifier(
-                sandbox,
-                verifier,
-                file.as_deref(),
-                schema.as_ref(),
                 structured_output,
             )
             .await
@@ -118,6 +139,224 @@ async fn run_shell_verifier(
             -1,
         ),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tool call verifier
+// ---------------------------------------------------------------------------
+
+fn run_tool_call_verifier(
+    verifier: &Verifier,
+    tool: Option<&str>,
+    field: Option<&str>,
+    matches: Option<&str>,
+    not_matches: Option<&str>,
+    tool_context: Option<&serde_json::Value>,
+    action_history: &[TrajectoryStep],
+) -> VerifierResult {
+    // on_stop mode: scan history to assert a tool was actually called
+    if tool_context.is_none() {
+        return run_tool_call_history_verifier(
+            verifier,
+            tool,
+            field,
+            matches,
+            not_matches,
+            action_history,
+        );
+    }
+
+    // on_tool mode: inspect the current tool call's context
+    let ctx = tool_context.unwrap();
+    check_tool_context(verifier, ctx, field, matches, not_matches)
+}
+
+/// on_stop mode: scan action history to assert a matching tool call occurred.
+fn run_tool_call_history_verifier(
+    verifier: &Verifier,
+    tool: Option<&str>,
+    field: Option<&str>,
+    matches: Option<&str>,
+    not_matches: Option<&str>,
+    action_history: &[TrajectoryStep],
+) -> VerifierResult {
+    let required_tool = match tool {
+        Some(t) => t,
+        None => {
+            return VerifierResult::new(
+                verifier.name.clone(),
+                false,
+                String::new(),
+                "tool_call verifier with on_stop trigger requires a 'tool' field".to_string(),
+                1,
+            );
+        }
+    };
+
+    let candidates: Vec<&TrajectoryStep> = action_history
+        .iter()
+        .filter(|step| {
+            matches!(
+                &step.action,
+                Action::ToolCall { tool, .. } if tool.as_str() == required_tool
+            )
+        })
+        .collect();
+
+    if candidates.is_empty() {
+        return VerifierResult::new(
+            verifier.name.clone(),
+            false,
+            String::new(),
+            format!("tool '{}' was never called", required_tool),
+            1,
+        );
+    }
+
+    // If no field constraint, presence alone is sufficient
+    if field.is_none() && matches.is_none() && not_matches.is_none() {
+        return VerifierResult::new(
+            verifier.name.clone(),
+            true,
+            format!(
+                "tool '{}' was called {} time(s)",
+                required_tool,
+                candidates.len()
+            ),
+            String::new(),
+            0,
+        );
+    }
+
+    // Check whether any call satisfies the field constraints
+    for step in &candidates {
+        if let Action::ToolCall { input, .. } = &step.action {
+            let ctx = serde_json::json!({ "input": input, "output": step.result });
+            let result = check_tool_context(verifier, &ctx, field, matches, not_matches);
+            if result.passed {
+                return result;
+            }
+        }
+    }
+
+    let field_desc = field.unwrap_or("/input");
+    VerifierResult::new(
+        verifier.name.clone(),
+        false,
+        String::new(),
+        format!(
+            "tool '{}' was called {} time(s) but no call matched the field constraints on '{}'",
+            required_tool,
+            candidates.len(),
+            field_desc
+        ),
+        1,
+    )
+}
+
+/// Shared: evaluate field/matches/not_matches against a tool context object.
+fn check_tool_context(
+    verifier: &Verifier,
+    ctx: &serde_json::Value,
+    field: Option<&str>,
+    matches: Option<&str>,
+    not_matches: Option<&str>,
+) -> VerifierResult {
+    let field_ptr = match field {
+        Some(f) => f,
+        None => {
+            // No field constraint — context presence is enough
+            return VerifierResult::new(
+                verifier.name.clone(),
+                true,
+                "tool call observed".to_string(),
+                String::new(),
+                0,
+            );
+        }
+    };
+
+    let value = match ctx.pointer(field_ptr) {
+        Some(v) => v,
+        None => {
+            return VerifierResult::new(
+                verifier.name.clone(),
+                false,
+                String::new(),
+                format!("field '{}' not found in tool context", field_ptr),
+                1,
+            );
+        }
+    };
+
+    let text = match value {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    };
+
+    if let Some(pattern) = matches {
+        match regex::Regex::new(pattern) {
+            Ok(re) => {
+                if !re.is_match(&text) {
+                    return VerifierResult::new(
+                        verifier.name.clone(),
+                        false,
+                        String::new(),
+                        format!(
+                            "field '{}' value {:?} does not match /{}/",
+                            field_ptr, text, pattern
+                        ),
+                        1,
+                    );
+                }
+            }
+            Err(e) => {
+                return VerifierResult::new(
+                    verifier.name.clone(),
+                    false,
+                    String::new(),
+                    format!("invalid regex in 'matches': {}", e),
+                    1,
+                );
+            }
+        }
+    }
+
+    if let Some(pattern) = not_matches {
+        match regex::Regex::new(pattern) {
+            Ok(re) => {
+                if re.is_match(&text) {
+                    return VerifierResult::new(
+                        verifier.name.clone(),
+                        false,
+                        String::new(),
+                        format!(
+                            "field '{}' value {:?} matches forbidden pattern /{}/",
+                            field_ptr, text, pattern
+                        ),
+                        1,
+                    );
+                }
+            }
+            Err(e) => {
+                return VerifierResult::new(
+                    verifier.name.clone(),
+                    false,
+                    String::new(),
+                    format!("invalid regex in 'not_matches': {}", e),
+                    1,
+                );
+            }
+        }
+    }
+
+    VerifierResult::new(
+        verifier.name.clone(),
+        true,
+        format!("field '{}' = {:?}", field_ptr, text),
+        String::new(),
+        0,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -203,99 +442,6 @@ async fn run_levenshtein_verifier(
         stderr,
         if passed { 0 } else { 1 },
     )
-}
-
-// ---------------------------------------------------------------------------
-// JSON verifier
-// ---------------------------------------------------------------------------
-
-async fn run_json_verifier(
-    sandbox: &dyn Sandbox,
-    verifier: &Verifier,
-    file: Option<&str>,
-    schema: Option<&serde_json::Value>,
-    structured_output: Option<&serde_json::Value>,
-) -> VerifierResult {
-    // When no file is specified, use structured output directly (no re-parsing needed).
-    let parsed: serde_json::Value = if file.is_none() {
-        match structured_output {
-            Some(v) => v.clone(),
-            None => {
-                return VerifierResult::new(
-                    verifier.name.clone(),
-                    false,
-                    String::new(),
-                    "No 'file' specified and no structured output available. Add 'file' or define 'output_schema' in [boundary].".to_string(),
-                    1,
-                );
-            }
-        }
-    } else {
-        let content = match resolve_text_content(sandbox, file, None).await {
-            Ok(c) => c,
-            Err(e) => {
-                return VerifierResult::new(verifier.name.clone(), false, String::new(), e, 1);
-            }
-        };
-        match serde_json::from_str(&content) {
-            Ok(v) => v,
-            Err(e) => {
-                return VerifierResult::new(
-                    verifier.name.clone(),
-                    false,
-                    String::new(),
-                    format!("Invalid JSON: {}", e),
-                    1,
-                );
-            }
-        }
-    };
-
-    if let Some(schema_value) = schema {
-        match jsonschema::validator_for(&schema_value) {
-            Ok(compiled) => {
-                let messages: Vec<String> = compiled
-                    .iter_errors(&parsed)
-                    .map(|e| e.to_string())
-                    .collect();
-                if !messages.is_empty() {
-                    VerifierResult::new(
-                        verifier.name.clone(),
-                        false,
-                        String::new(),
-                        format!("JSON schema validation failed:\n{}", messages.join("\n")),
-                        1,
-                    )
-                    .with_schema(schema_value.clone())
-                } else {
-                    VerifierResult::new(
-                        verifier.name.clone(),
-                        true,
-                        "Valid JSON matching schema".to_string(),
-                        String::new(),
-                        0,
-                    )
-                    .with_schema(schema_value.clone())
-                }
-            }
-            Err(e) => VerifierResult::new(
-                verifier.name.clone(),
-                false,
-                String::new(),
-                format!("Invalid JSON schema: {}", e),
-                1,
-            )
-            .with_schema(schema_value.clone()),
-        }
-    } else {
-        VerifierResult::new(
-            verifier.name.clone(),
-            true,
-            "Valid JSON".to_string(),
-            String::new(),
-            0,
-        )
-    }
 }
 
 // ---------------------------------------------------------------------------

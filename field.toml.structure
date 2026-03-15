@@ -7,18 +7,28 @@
 # automatically as the parent — no explicit flag required.
 # Example child:  model = "inherit"   tools = "inherit"
 # Example parent: a field.toml with [model], [[tool]], [boundary], etc.
+#
+# Template variables: use {{ var_name }} in any string field (goal, system,
+# re_observation, tool descriptions, verifier commands). Declare variables in
+# [vars] with required/optional/default, then supply at runtime:
+#   portlang run field.toml --var customer_id=123
+#   portlang run field.toml --vars params.json
 
 name = "..."                    # (required) identifier, used in trajectory storage
 description = "..."             # human-readable summary
+
+[vars]                          # optional; declare template variables used in {{ }} syntax
+# customer_id = { required = true, description = "Salesforce account ID" }
+# region = { required = false, default = "us-east-1", description = "AWS region" }
 
 [model]                         # (required, or model = "inherit" to pull from parent)
 name = "..."                    # (required) e.g. "anthropic/claude-sonnet-4.6"
 temperature = 0.5               # sampling temperature, default 0.5
 
 [prompt]                        # (required)
-goal = "..."                    # (required) initial task, enters context at step 0
-system = "..."                  # optional system prompt prepended to all interactions
-re_observation = ["cmd", ...]   # commands that run before each step to refresh context
+goal = "..."                    # (required) initial task, enters context at step 0; supports {{ var }} templates
+system = "..."                  # optional system prompt prepended to all interactions; supports {{ var }} templates
+re_observation = ["cmd", ...]   # commands that run before each step to refresh context; supports {{ var }} templates
 
 [environment]                   # optional, all fields have defaults
 root = "./workspace"            # working directory (maps to /workspace in container)
@@ -63,7 +73,7 @@ url = "https://..."             # for http/sse transport (replaces command/args)
 headers = { Authorization = "Bearer ${TOKEN}" }  # for http/sse transport
 transport = "stdio" | "http" | "sse"  # default: stdio
 
-[[verifier]]                    # repeatable; zero or more; type = "shell" | "levenshtein" | "json" | "semantic"
+[[verifier]]                    # repeatable; zero or more; type = "shell" | "levenshtein" | "semantic" | "tool_call"
 name = "..."                    # (required) identifier
 trigger = "on_stop" | "always" | "on_tool:<tool_name>"  # default: on_stop
 description = "..."             # injected into context on failure
@@ -81,12 +91,6 @@ expected = "..."                # (required) reference string to compare against
 threshold = 0.9                 # normalized similarity [0.0–1.0] required to pass; default: 1.0
 
 [[verifier]]
-type = "json"                   # --- JSON structure validation ---
-name = "..."                    # (required)
-file = "output.json"            # optional; workspace-relative path; omit to use structured output (output_schema)
-schema = '{"type": "object"}'  # optional JSON Schema string; validates structure if provided
-
-[[verifier]]
 type = "semantic"               # --- cosine similarity via embeddings ---
 name = "..."                    # (required)
 file = "output.txt"             # optional; workspace-relative path; omit to use structured output (output_schema)
@@ -96,3 +100,14 @@ embedding_model = "..."         # local: "bge-small-en-v1.5" (default), "all-min
                                 # model downloaded from HuggingFace on first use (~67 MB), no API key required
 embedding_url = "https://..."  # optional; set to use an OpenAI-compatible HTTP endpoint instead of local model
                                 # reads EMBEDDING_API_KEY or OPENAI_API_KEY from environment when embedding_url is set
+
+[[verifier]]
+type = "tool_call"              # --- tool call inspection ---
+name = "..."                    # (required)
+# With on_tool:<name> trigger — inspect the current tool call's input/output:
+field = "/input/path"           # JSON pointer into {input: {...}, output: "..."} e.g. /input/path, /output
+matches = "^[a-z]+"            # optional; regex the field value must match
+not_matches = "^/etc"          # optional; regex the field value must NOT match
+# With on_stop trigger — assert a tool was actually called (catches hallucination):
+tool = "bash"                   # (required for on_stop) tool name to require in action history
+                                # field/matches/not_matches optionally constrain which call counts

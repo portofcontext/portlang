@@ -1,6 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
-use portlang_config::{parse_field_with_parent, parse_parent_config};
+use portlang_config::{apply_runtime_context, parse_field_with_parent, parse_parent_config};
+use portlang_core::RuntimeContext;
 use portlang_provider_anthropic::AnthropicProvider;
 use portlang_provider_openrouter::OpenRouterProvider;
 use portlang_runtime::{run_field, validate_field_config, ModelProvider};
@@ -22,6 +23,7 @@ pub async fn eval_command(
     directory: PathBuf,
     parent_field: Option<PathBuf>,
     resume_id: Option<String>,
+    ctx: RuntimeContext,
 ) -> Result<()> {
     // Load parent config: explicit -p flag takes priority, then directory/field.toml
     let parent = if let Some(ref explicit) = parent_field {
@@ -115,6 +117,12 @@ pub async fn eval_command(
     // Save initial manifest so partial runs are recoverable
     eval_run_store.save(&eval_run)?;
 
+    // Use a default (no-input) context for eval — --input is not supported per-field in batch runs
+    let eval_ctx = RuntimeContext {
+        vars: ctx.vars.clone(),
+        input: None,
+    };
+
     for path in field_paths.iter() {
         let field = match parse_field_with_parent(path, parent.as_ref()) {
             Ok(f) => f,
@@ -122,6 +130,19 @@ pub async fn eval_command(
                 eprintln!("\n✗ Fatal error: Failed to parse field {}", path.display());
                 eprintln!("  Error: {}", e);
                 eprintln!("\nEvaluation aborted. Fix the field configuration and try again.");
+                return Err(e.into());
+            }
+        };
+
+        let field = match apply_runtime_context(field, &eval_ctx) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!(
+                    "\n✗ Fatal error: Template variable error in {}",
+                    path.display()
+                );
+                eprintln!("  Error: {}", e);
+                eprintln!("\nEvaluation aborted. Supply required variables with --var key=value.");
                 return Err(e.into());
             }
         };
@@ -156,7 +177,7 @@ pub async fn eval_command(
             Box::new(p)
         };
 
-        let run_result = run_field(&field, provider.as_ref()).await;
+        let run_result = run_field(&field, provider.as_ref(), &eval_ctx).await;
 
         match run_result {
             Ok(trajectory) => {

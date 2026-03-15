@@ -2,7 +2,7 @@ use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 use portlang_adapt::{format_report, AdaptationReport};
 use portlang_config::parse_field_from_file;
-use portlang_core::Trajectory;
+use portlang_core::{RuntimeContext, Trajectory};
 use portlang_provider_anthropic::AnthropicProvider;
 use portlang_provider_openrouter::OpenRouterProvider;
 use portlang_runtime::{run_field, ModelProvider};
@@ -24,14 +24,14 @@ pub async fn benchmark_command(field_path: PathBuf, runs: usize) -> Result<()> {
     }
 
     println!("Model: {}", field.model.name);
-    println!("Goal: {}", field.goal);
+    println!("Goal: {}", field.prompt.goal);
     println!();
 
     // Create trajectory store
     let store = FilesystemStore::new()?;
 
     // Collect trajectories from all runs
-    let mut trajectories = Vec::new();
+    let mut trajectories: Vec<Trajectory> = Vec::new();
 
     // Progress bar for all runs
     let overall_progress = ProgressBar::new(runs as u64);
@@ -42,6 +42,8 @@ pub async fn benchmark_command(field_path: PathBuf, runs: usize) -> Result<()> {
             .progress_chars("=>-"),
     );
 
+    let ctx = RuntimeContext::default();
+
     for run_num in 1..=runs {
         overall_progress.set_message(format!("Running trial {}/{}", run_num, runs));
 
@@ -51,23 +53,17 @@ pub async fn benchmark_command(field_path: PathBuf, runs: usize) -> Result<()> {
             if let Some(temp) = field.model.temperature {
                 p = p.with_temperature(temp);
             }
-            if let Some(max_tokens) = field.model.max_tokens {
-                p = p.with_max_tokens(max_tokens);
-            }
             Box::new(p)
         } else {
             let mut p = AnthropicProvider::from_env(&field.model.name)?;
             if let Some(temp) = field.model.temperature {
                 p = p.with_temperature(temp);
             }
-            if let Some(max_tokens) = field.model.max_tokens {
-                p = p.with_max_tokens(max_tokens);
-            }
             Box::new(p)
         };
 
         // Run the field
-        let trajectory = run_field(&field, provider.as_ref()).await?;
+        let trajectory = run_field(&field, provider.as_ref(), &ctx).await?;
 
         // Save trajectory
         store.save(&trajectory)?;

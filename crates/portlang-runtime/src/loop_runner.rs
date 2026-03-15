@@ -439,8 +439,61 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
     })
 }
 
+/// Stage input data into the workspace root before the agent starts.
+/// For File sources: copies the file preserving its name.
+/// For Inline sources: writes content to portlang_input.json.
+/// Returns the filename written, so the caller can reference it in the goal.
+async fn stage_input(workspace_root: &str, input: &InputSource) -> anyhow::Result<String> {
+    tokio::fs::create_dir_all(workspace_root).await?;
+
+    match input {
+        InputSource::File(src_path) => {
+            let filename = src_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "portlang_input".to_string());
+            let dest = std::path::Path::new(workspace_root).join(&filename);
+            tokio::fs::copy(src_path, &dest).await.map_err(|e| {
+                anyhow::anyhow!(
+                    "Failed to copy input file '{}' to workspace: {}",
+                    src_path.display(),
+                    e
+                )
+            })?;
+            Ok(filename)
+        }
+        InputSource::Inline(content) => {
+            let dest = std::path::Path::new(workspace_root).join("portlang_input.json");
+            tokio::fs::write(&dest, content)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to write inline input to workspace: {}", e))?;
+            Ok("portlang_input.json".to_string())
+        }
+    }
+}
+
 /// Run a field configuration
-pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::Result<Trajectory> {
+pub async fn run_field(
+    field: &Field,
+    provider: &dyn ModelProvider,
+    ctx: &RuntimeContext,
+) -> anyhow::Result<Trajectory> {
+    // Stage input data before preparing agent view (so workspace dir exists for container mount)
+    let input_note = if let Some(ref input) = ctx.input {
+        let filename = stage_input(&field.environment.root, input).await?;
+        // Only append note if goal doesn't already reference the input file
+        if !field.prompt.goal.contains("portlang_input") && !field.prompt.goal.contains(&filename) {
+            Some(format!(
+                "\n\nInput data is available at /workspace/{}.",
+                filename
+            ))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     // Prepare what the agent sees
     let agent_view = prepare_agent_view(field).await?;
     let AgentView {
@@ -465,8 +518,13 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
     // Create MCP manager for cleanup
     let mut mcp_manager = McpServerManager::new();
 
-    // Create context window
-    let mut context = ContextWindow::new(&field.prompt.goal);
+    // Create context window, appending input note if data was staged
+    let goal_with_input = if let Some(ref note) = input_note {
+        format!("{}{}", field.prompt.goal, note)
+    } else {
+        field.prompt.goal.clone()
+    };
+    let mut context = ContextWindow::new(&goal_with_input);
 
     // Create loop detector
     let mut loop_detector = LoopDetector::new();
@@ -479,7 +537,7 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
     let env_type = "local".to_string();
     let mut trajectory = Trajectory::new(field.name.clone());
     trajectory = trajectory.with_context(
-        field.prompt.goal.clone(),
+        goal_with_input.clone(),
         provider.model_name().to_string(),
         system_prompt_text.clone(),
         tools_json.clone(),
@@ -692,12 +750,22 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
                                 trajectory.add_step(step);
 
                                 // Run verifiers
+                                let submit_context = if let Action::ToolCall { input, .. } = &action
+                                {
+                                    Some(
+                                        serde_json::json!({ "input": input, "output": success_msg }),
+                                    )
+                                } else {
+                                    None
+                                };
                                 let verifier_results = run_verifiers(
                                     sandbox.as_ref(),
                                     &field.verifiers,
                                     &action,
                                     true,
                                     Some(output_value),
+                                    submit_context.as_ref(),
+                                    &trajectory.steps,
                                 )
                                 .await;
                                 let all_passed = verifier_results.iter().all(|r| r.passed);
@@ -777,12 +845,19 @@ pub async fn run_field(field: &Field, provider: &dyn ModelProvider) -> anyhow::R
 
         // Step 5: Run triggered verifiers
         let is_stop = action.is_stop();
+        let tool_context = if let Action::ToolCall { input, .. } = &action {
+            Some(serde_json::json!({ "input": input, "output": result }))
+        } else {
+            None
+        };
         let verifier_results = run_verifiers(
             sandbox.as_ref(),
             &field.verifiers,
             &action,
             is_stop,
             trajectory.structured_output.as_ref(),
+            tool_context.as_ref(),
+            &trajectory.steps,
         )
         .await;
 

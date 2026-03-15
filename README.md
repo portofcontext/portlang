@@ -13,154 +13,26 @@
 
 </div>
 
-Most agent frameworks manage loops. portlang manages environments. You declare what success looks like, what the agent can access, and what it cannot do. The runtime handles sandboxed execution, trajectory recording, and verification—so you can measure reliability, not just vibe-check outputs.
+Most agent frameworks manage loops. portlang manages environments. You declare what the agent can access, what counts as success, and hard limits on cost and scope. The runtime enforces all of it inside an isolated container and records every step.
 
-<details>
-<summary><b>Design Philosophy</b></summary>
-
-<br>
-
-Agent behavior is search through a conditioned space. The policy is trained and opaque. The only variables you control are the environment and the context window. When tasks grow long—overnight refactors, multi-step API workflows, data pipelines—prompts stop being enough. You need structure: boundaries that eliminate bad trajectories, verifiers that steer the search, and trajectories you can replay and diff when things diverge.
-
-A `field.toml` is a declarative unit of agent work. It specifies the model, tools, goal, filesystem access, network policy, cost and step limits, and verifiers that define success. The runtime enforces all of it inside an isolated container and records every step.
-
-</details>
-
-## Getting Started
-
-### Install via Homebrew
+## Install
 
 ```bash
 brew tap portofcontext/homebrew-tap
 brew install portlang
 ```
 
-### Build from Source
-
 ```bash
-git clone https://github.com/portofcontext/portlang
-cd portlang
-cargo build --release
-```
-
-### Setup
-
-```bash
-# Set an API key (Anthropic or OpenRouter)
-export OPENROUTER_API_KEY=...
-export ANTHROPIC_API_KEY=...
-
-# Install Apple Container and start the container runtime
+export ANTHROPIC_API_KEY=...   # or OPENROUTER_API_KEY
 portlang init --install --start
-
-# (Optional) Install the agent skill to guide you as you build fields
-npx skills add https://github.com/portofcontext/skills --skill portlang
-
-# Run after creating a field
-portlang run field.toml
 ```
 
-### CLI Reference
+## Example
 
-Complete [CLI Reference](./CLI.md) — all commands and flags.
-
----
-
-## Example: Code Task with Verification
-
-A field that writes a Python analyzer, then verifies all tests pass:
+This field calls a Stripe MCP server, returns typed JSON, and verifies the result — parameterized so the same definition works for any customer:
 
 ```toml
-name = "code-task"
-
-[model]
-name = "anthropic/claude-sonnet-4.6"
-temperature = 1.0
-
-[prompt]
-goal = """
-Create a Python program that reads a text file and outputs word statistics to JSON.
-Include pytest tests in test_analyzer.py that verify all functionality.
-Once all three files exist (analyzer.py, test_analyzer.py, requirements.txt), stop.
-"""
-re_observation = ["echo '=== workspace ===' && ls -1 *.py *.txt 2>/dev/null"]
-
-[environment]
-root = "./workspace"
-
-[boundary]
-allow_write = ["*.py", "*.txt", "requirements.txt"]
-max_steps = 30
-max_cost = "$1.00"
-max_tokens = 80000
-
-[[verifier]]
-name = "pytest"
-command = "python -m pytest test_analyzer.py -v 2>&1"
-trigger = "on_stop"
-description = "All tests must pass"
-```
-
-```bash
-portlang run examples/02-code-task/field.toml
-portlang view trajectory <id>       # HTML step-by-step replay
-```
-
----
-
-## Example: Structured Output with JSON Verifiers
-
-Require the agent to submit a typed JSON response, then verify specific fields:
-
-```toml
-name = "analyze-workspace"
-
-[model]
-name = "anthropic/claude-sonnet-4.6"
-temperature = 0.0
-
-[prompt]
-goal = "Analyze the workspace files and report status, file count, and a summary."
-
-[environment]
-root = "./workspace"
-
-[boundary]
-network = "deny"
-max_steps = 10
-max_cost = "$1.00"
-max_tokens = 100000
-output_schema = """
-{
-  "type": "object",
-  "required": ["status", "file_count", "files", "summary"],
-  "properties": {
-    "status":     { "type": "string", "enum": ["success", "failure"] },
-    "file_count": { "type": "integer", "minimum": 0 },
-    "files":      { "type": "array", "items": { "type": "string" } },
-    "summary":    { "type": "string" }
-  }
-}
-"""
-
-[[verifier]]
-name = "status-is-success"
-type = "json"
-schema = '{"properties": {"status": {"const": "success"}}}'
-trigger = "on_stop"
-description = "status must be success"
-```
-
-When `output_schema` is set, the agent must call `submit_output` with a matching JSON object. JSON verifiers (`type = "json"`) validate specific fields against a schema—no shell scripts needed.
-
----
-
-## Example: MCP Tool Integration
-
-Connect any MCP server and give the agent real API access. Here a parent `field.toml` defines the shared model and tool configuration:
-
-```toml
-# field.toml (parent — shared across all tasks in this directory)
+# field.toml (parent — defines shared model and tools)
 [model]
 name = "anthropic/claude-sonnet-4.6"
 temperature = 0.0
@@ -171,77 +43,64 @@ name = "stripe"
 command = "npx"
 args  = ["-y", "@stripe/mcp"]
 env   = { STRIPE_SECRET_KEY = "${STRIPE_SECRET_KEY}" }
-```
 
-```toml
-# 01-get-balance/field.toml (child task — inherits model and tools)
+# get-balance/field.toml
 name = "get-balance"
 
 model = "inherit"
 tools = "inherit"
 
-[prompt]
-goal = "Get the Stripe account balance. Return available and pending amounts."
+[vars]
+currency = { required = false, default = "usd", description = "Currency to report" }
 
-[environment]
-root = "./workspace"
+[prompt]
+goal = "Get the Stripe account balance and return available and pending amounts in {{ currency }}."
 
 [boundary]
-allow_write = ["mcp_calls.json"]
 network = "allow"
-max_steps = 20
-max_cost = "$2.00"
-max_tokens = 150000
+allow_write = ["output.json"]
+max_steps = 10
+max_cost = "$0.50"
 output_schema = """
 {
   "type": "object",
-  "required": ["available_amount", "pending_amount", "currency"],
+  "required": ["available", "pending", "currency"],
   "properties": {
-    "available_amount": { "type": "integer" },
-    "pending_amount":   { "type": "integer" },
-    "currency":         { "type": "string" }
+    "available": { "type": "integer" },
+    "pending":   { "type": "integer" },
+    "currency":  { "type": "string" }
   }
 }
 """
 
 [[verifier]]
-name = "has-balance"
+name = "correct-currency"
 type = "json"
-schema = '{"properties": {"available_amount": {"minimum": 0}}}'
+schema = '{"properties": {"currency": {"const": "{{ currency }}"}}}'
 trigger = "on_stop"
-description = "Balance must be a non-negative integer"
+description = "Response must use the requested currency"
 ```
 
 ```bash
-# Run the full benchmark suite
-portlang eval pctx-evals/stripe-benchmark
+# Run once
+portlang run get-balance/field.toml --var currency=gbp
 
-# Eval results get a persistent ID — view the HTML dashboard
+# Inject input data into the workspace before the agent starts
+portlang run field.toml --input ./customers.csv
+portlang run field.toml --input '{"customer_id": "cus_123"}'
+
+# Measure reliability across N runs
+portlang converge get-balance/field.toml -n 10
+
+# Run a full eval suite, view results as an HTML dashboard
+portlang eval stripe-benchmark/
 portlang view eval <eval-id>
 
-# Resume an eval that was interrupted, skipping tasks that already passed
-portlang eval pctx-evals/stripe-benchmark --resume <eval-id>
+# Replay any run step-by-step
+portlang view trajectory <id>
 ```
 
----
-
-## Measuring Reliability
-
-Single runs tell you if an agent can solve a task. Convergence tells you if it does so reliably:
-
-```bash
-# Run 10 times, measure pass rate and token distribution
-portlang converge examples/02-code-task/field.toml -n 10
-
-# Run all tasks in a directory and get aggregate accuracy
-portlang eval pctx-evals/stripe-benchmark
-
-# Diff two trajectories to find where they diverged
-portlang diff <id-a> <id-b>
-
-# View adaptation report — which tool sequences correlate with success
-portlang view field <field-name>
-```
+Key concepts: `[vars]` declares `{{ placeholders }}` resolved at runtime via `--var`. `[boundary]` enforces hard limits in the sandbox. `[[verifier]]` defines success criteria that run automatically and inject feedback into the context window. `output_schema` requires the agent to submit typed JSON via `submit_output`.
 
 ---
 
@@ -250,41 +109,24 @@ portlang view field <field-name>
 | Primitive | Purpose |
 |-----------|---------|
 | **Field** | Self-contained unit of work — model, tools, goal, constraints, and verifiers in one file |
+| **Vars** | Template variables declared in `[vars]`, interpolated via `{{ name }}`, supplied at runtime with `--var` |
 | **Boundary** | Hard limits enforced by sandbox — write paths, network policy, step/cost/token caps |
-| **Verifier** | Success criteria that run automatically and inject feedback into the context window |
-| **Structured Output** | JSON schema the agent must match; verified with `type = "json"` verifiers |
+| **Verifier** | Success criteria that run on stop or on each tool call; failure feedback enters the context window |
 | **Trajectory** | Complete event log — every step, tool call, cost, and outcome; replayable and diffable |
-| **Eval Run** | A named run of multiple fields with a persistent ID, resumable on failure |
-
----
+| **Eval** | Batch run of multiple fields with a persistent ID, resumable on failure |
 
 ## Security
 
-Agent code runs in isolated containers via [Apple Container](https://developer.apple.com/documentation/virtualization). Boundaries are enforced at runtime, not through prompts.
-
-- Workspace is isolated from the host filesystem
-- Network access denied by default (`network = "deny"`)
-- Write permissions granted explicitly via glob patterns (`allow_write = ["*.json"]`)
-- Hard ceilings on steps, cost, and context window size
-- Path traversal blocked; boundary violations recorded in the trajectory
-
-**Threat model:**
-- ✓ Protects: unauthorized file access, data exfiltration, resource exhaustion
-- ✗ Doesn't protect: API key exfiltration via MCP, prompt injection, malicious `field.toml`
+Agent code runs in isolated containers via [Apple Container](https://developer.apple.com/documentation/virtualization). Network is denied by default. Write access is explicitly granted via glob patterns. Hard ceilings on steps, cost, and context size.
 
 Treat `field.toml` as code. Review tool definitions and boundary policies before running untrusted fields.
 
 ---
 
-## Examples
+## Examples & Reference
 
-| Directory | What it shows |
-|-----------|---------------|
-| [examples/01-hello-world](examples/01-hello-world/) | Minimal field |
-| [examples/02-code-task](examples/02-code-task/) | Writing code with shell verifier |
-| [examples/03-custom-shell-tool](examples/03-custom-shell-tool/) | Custom shell tool |
-| [examples/04-custom-python-tool](examples/04-custom-python-tool/) | Custom Python tool with type inference |
-| [examples/05-converge-and-report](examples/05-converge-and-report/) | Convergence measurement |
-| [examples/06-builtin-verifiers](examples/06-builtin-verifiers/) | JSON verifiers and structured output |
-| [examples/07-structured-output-example](examples/07-structured-output-example/) | Full structured output with schema |
-| [pctx-evals/stripe-benchmark](pctx-evals/stripe-benchmark/) | 12-task MCP eval suite against live Stripe API |
+| | |
+|---|---|
+| [examples/](examples/) | Annotated examples covering all features |
+| [field.toml.structure](field.toml.structure) | Full reference for every field.toml option |
+| [CLI.md](CLI.md) | All commands and flags |

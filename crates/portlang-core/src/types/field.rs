@@ -125,6 +125,26 @@ pub struct McpToolPatch {
 /// Map of MCP tool name → patch (the patch file format)
 pub type McpPatchMap = HashMap<String, McpToolPatch>;
 
+/// Declaration of a template variable in [vars]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct VarDecl {
+    /// Whether this variable is required (default: true)
+    #[serde(default = "default_true")]
+    pub required: bool,
+
+    /// Default value if not supplied at runtime
+    #[serde(default)]
+    pub default: Option<String>,
+
+    /// Human-readable description shown in `portlang check`
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// A field defines a complete agent task configuration
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Field {
@@ -157,6 +177,10 @@ pub struct Field {
     #[serde(default)]
     pub verifiers: Vec<Verifier>,
 
+    /// Template variable declarations (from [vars] section)
+    #[serde(default)]
+    pub vars: HashMap<String, VarDecl>,
+
     /// Directory containing the field.toml file (for path resolution)
     /// None if field was loaded from stdin or string
     #[serde(skip)]
@@ -178,6 +202,7 @@ impl Field {
             boundary: Boundary::default(),
             tools: Vec::new(),
             verifiers: Vec::new(),
+            vars: HashMap::new(),
             config_dir: None,
         }
     }

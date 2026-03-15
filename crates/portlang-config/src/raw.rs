@@ -69,6 +69,23 @@ pub struct RawParentConfig {
     pub boundary: Option<RawBoundary>,
 }
 
+/// Declaration of a template variable in [vars]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawVarDecl {
+    /// Whether this variable is required (default: true)
+    #[serde(default = "default_true")]
+    pub required: bool,
+
+    /// Default value if not supplied at runtime
+    #[serde(default)]
+    pub default: Option<String>,
+
+    /// Human-readable description
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
 /// Raw TOML field structure (before validation)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -96,6 +113,9 @@ pub struct RawField {
     pub code_mode: Option<InheritOr<RawCodeMode>>,
     #[serde(default)]
     pub verifier: Vec<RawVerifier>,
+    /// Template variable declarations: [vars] section
+    #[serde(default)]
+    pub vars: HashMap<String, RawVarDecl>,
 }
 
 fn deserialize_output_schema<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
@@ -187,12 +207,19 @@ pub struct RawVerifier {
     pub expected: Option<String>,
     #[serde(default)]
     pub threshold: Option<f64>,
-    #[serde(default, deserialize_with = "deserialize_optional_schema")]
-    pub schema: Option<serde_json::Value>,
     #[serde(default)]
     pub embedding_url: Option<String>,
     #[serde(default)]
     pub embedding_model: Option<String>,
+    // tool_call verifier fields
+    #[serde(default)]
+    pub tool: Option<String>,
+    #[serde(default)]
+    pub field: Option<String>,
+    #[serde(default)]
+    pub matches: Option<String>,
+    #[serde(default)]
+    pub not_matches: Option<String>,
     // Common fields
     #[serde(default)]
     pub trigger: Option<String>,

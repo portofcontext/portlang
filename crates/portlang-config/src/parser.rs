@@ -335,10 +335,6 @@ fn convert_raw_field(
                         threshold: raw_verifier.threshold.unwrap_or(1.0),
                     }
                 }
-                "json" => VerifierAlgorithm::Json {
-                    file: raw_verifier.file,
-                    schema: raw_verifier.schema,
-                },
                 "semantic" => {
                     let expected = raw_verifier.expected.ok_or_else(|| {
                         FieldParseError::InvalidField(format!(
@@ -354,9 +350,17 @@ fn convert_raw_field(
                         embedding_model: raw_verifier.embedding_model,
                     }
                 }
+                "tool_call" => {
+                    VerifierAlgorithm::ToolCall {
+                        tool: raw_verifier.tool,
+                        field: raw_verifier.field,
+                        matches: raw_verifier.matches,
+                        not_matches: raw_verifier.not_matches,
+                    }
+                }
                 other => {
                     return Err(FieldParseError::InvalidField(format!(
-                        "Verifier '{}': unknown type '{}'. Must be 'shell', 'levenshtein', 'json', or 'semantic'",
+                        "Verifier '{}': unknown type '{}'. Must be 'shell', 'levenshtein', 'semantic', or 'tool_call'",
                         raw_verifier.name, other
                     )))
                 }
@@ -687,6 +691,22 @@ fn convert_raw_field(
         code_mode_enabled: environment.code_mode_enabled,
     };
 
+    // Parse [vars] declarations
+    let vars: std::collections::HashMap<String, VarDecl> = raw
+        .vars
+        .into_iter()
+        .map(|(k, v)| {
+            (
+                k,
+                VarDecl {
+                    required: v.required,
+                    default: v.default,
+                    description: v.description,
+                },
+            )
+        })
+        .collect();
+
     Ok(Field {
         name: raw.name,
         description: raw.description,
@@ -700,8 +720,122 @@ fn convert_raw_field(
         boundary,
         tools,
         verifiers,
+        vars,
         config_dir,
     })
+}
+
+/// Interpolate `{{ var_name }}` placeholders in a string using the provided variable map.
+/// Returns an error if an unresolved placeholder is found.
+fn interpolate(s: &str, vars: &std::collections::HashMap<String, String>) -> Result<String> {
+    let mut result = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        // Look for "{{"
+        if i + 1 < len && bytes[i] == b'{' && bytes[i + 1] == b'{' {
+            // Find the closing "}}"
+            let start = i + 2;
+            let mut j = start;
+            loop {
+                if j + 1 >= len {
+                    // No closing "}}"; treat as literal
+                    result.push_str(&s[i..]);
+                    return Ok(result);
+                }
+                if bytes[j] == b'}' && bytes[j + 1] == b'}' {
+                    break;
+                }
+                j += 1;
+            }
+            let var_name = s[start..j].trim();
+            match vars.get(var_name) {
+                Some(val) => result.push_str(val),
+                None => {
+                    return Err(FieldParseError::InvalidField(format!(
+                        "Template variable '{{{{ {} }}}}' is not defined. Supply it with --var {}=<value>",
+                        var_name, var_name
+                    )))
+                }
+            }
+            i = j + 2; // skip past "}}"
+        } else {
+            result.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+
+    Ok(result)
+}
+
+/// Apply runtime context to a field: validate vars, apply defaults, interpolate templates.
+/// Call this after `parse_field_with_parent` and before running the field.
+pub fn apply_runtime_context(mut field: Field, ctx: &RuntimeContext) -> Result<Field> {
+    // Build effective vars: declared defaults first, then runtime overrides
+    let mut effective: std::collections::HashMap<String, String> = field
+        .vars
+        .iter()
+        .filter_map(|(k, decl)| decl.default.as_ref().map(|d| (k.clone(), d.clone())))
+        .collect();
+    for (k, v) in &ctx.vars {
+        effective.insert(k.clone(), v.clone());
+    }
+
+    // Validate: collect all missing required vars
+    let mut missing: Vec<String> = Vec::new();
+    for (name, decl) in &field.vars {
+        if decl.required && !effective.contains_key(name) {
+            missing.push(name.clone());
+        }
+    }
+    if !missing.is_empty() {
+        missing.sort();
+        return Err(FieldParseError::InvalidField(format!(
+            "Missing required template variable(s): {}. Supply with --var key=value.",
+            missing.join(", ")
+        )));
+    }
+
+    // If no vars to substitute, return early
+    if effective.is_empty() {
+        return Ok(field);
+    }
+
+    // Interpolate all string fields
+    field.prompt.goal = interpolate(&field.prompt.goal, &effective)?;
+    if let Some(ref s) = field.prompt.system.clone() {
+        field.prompt.system = Some(interpolate(s, &effective)?);
+    }
+    let re_obs: Result<Vec<String>> = field
+        .prompt
+        .re_observation
+        .iter()
+        .map(|cmd| interpolate(cmd, &effective))
+        .collect();
+    field.prompt.re_observation = re_obs?;
+
+    // Interpolate tool descriptions and shell tool commands
+    for tool in &mut field.tools {
+        if let Some(ref d) = tool.description.clone() {
+            tool.description = Some(interpolate(d, &effective)?);
+        }
+        if tool.tool_type == "shell" {
+            if let Some(ref cmd) = tool.command.clone() {
+                tool.command = Some(interpolate(cmd, &effective)?);
+            }
+        }
+    }
+
+    // Interpolate shell verifier commands
+    for verifier in &mut field.verifiers {
+        if let VerifierAlgorithm::Shell { ref mut command } = verifier.algorithm {
+            *command = interpolate(command, &effective)?;
+        }
+    }
+
+    Ok(field)
 }
 
 #[cfg(test)]

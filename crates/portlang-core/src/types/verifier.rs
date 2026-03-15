@@ -18,15 +18,28 @@ pub enum VerifierAlgorithm {
         #[serde(default = "default_levenshtein_threshold")]
         threshold: f64,
     },
-    /// JSON structure validation, optionally against a JSON Schema
-    Json {
-        /// Workspace-relative path to the file to validate.
-        /// When omitted, the run's structured output (output_schema) is used.
+    /// Tool call inspection.
+    ///
+    /// With `on_tool:<name>` trigger: evaluates the current tool call's
+    /// `{input: {...}, output: "..."}` context using a JSON pointer + regex.
+    ///
+    /// With `on_stop` trigger: scans the full action history to assert a tool
+    /// was actually called (catches hallucination). `tool` names the tool to
+    /// look for; `field`/`matches`/`not_matches` optionally constrain it.
+    ToolCall {
+        /// Tool name to require in history (only used with `on_stop`).
         #[serde(default)]
-        file: Option<String>,
-        /// Optional JSON Schema (as a JSON value) to validate structure
+        tool: Option<String>,
+        /// JSON pointer (RFC 6901) into `{input: {...}, output: "..."}`,
+        /// e.g. `/input/path` or `/output`
         #[serde(default)]
-        schema: Option<serde_json::Value>,
+        field: Option<String>,
+        /// Regex the field value must match to pass
+        #[serde(default)]
+        matches: Option<String>,
+        /// Regex the field value must NOT match to pass
+        #[serde(default)]
+        not_matches: Option<String>,
     },
     /// Cosine similarity of embeddings from an OpenAI-compatible embeddings API
     Semantic {

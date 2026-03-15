@@ -2,6 +2,8 @@ mod commands;
 mod output;
 
 use clap::{Parser, Subcommand};
+use portlang_core::{InputSource, RuntimeContext};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process;
 
@@ -121,6 +123,18 @@ enum Commands {
         /// Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
         #[arg(short = 'p', long)]
         parent_field: Option<PathBuf>,
+
+        /// Template variable as KEY=VALUE (repeatable, e.g. --var customer_id=123)
+        #[arg(long = "var", value_name = "KEY=VALUE")]
+        var: Vec<String>,
+
+        /// JSON file containing template variables (key→value map)
+        #[arg(long = "vars", value_name = "FILE")]
+        vars: Option<PathBuf>,
+
+        /// Input data to stage into the workspace: path to a file or inline JSON string
+        #[arg(long = "input", value_name = "FILE_OR_JSON")]
+        input: Option<String>,
     },
     /// Check a field for errors
     Check {
@@ -130,6 +144,14 @@ enum Commands {
         /// Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
         #[arg(short = 'p', long)]
         parent_field: Option<PathBuf>,
+
+        /// Template variable as KEY=VALUE (repeatable)
+        #[arg(long = "var", value_name = "KEY=VALUE")]
+        var: Vec<String>,
+
+        /// JSON file containing template variables (key→value map)
+        #[arg(long = "vars", value_name = "FILE")]
+        vars: Option<PathBuf>,
     },
     /// Run a field N times and measure convergence reliability
     Converge {
@@ -143,6 +165,18 @@ enum Commands {
         /// Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
         #[arg(short = 'p', long)]
         parent_field: Option<PathBuf>,
+
+        /// Template variable as KEY=VALUE (repeatable)
+        #[arg(long = "var", value_name = "KEY=VALUE")]
+        var: Vec<String>,
+
+        /// JSON file containing template variables (key→value map)
+        #[arg(long = "vars", value_name = "FILE")]
+        vars: Option<PathBuf>,
+
+        /// Input data to stage into the workspace: path to a file or inline JSON string
+        #[arg(long = "input", value_name = "FILE_OR_JSON")]
+        input: Option<String>,
     },
     /// Run all fields in a directory and report aggregate accuracy
     Eval {
@@ -160,6 +194,14 @@ enum Commands {
         /// Generate HTML dashboard instead of CLI output
         #[arg(long)]
         html: bool,
+
+        /// Template variable as KEY=VALUE (repeatable)
+        #[arg(long = "var", value_name = "KEY=VALUE")]
+        var: Vec<String>,
+
+        /// JSON file containing template variables (key→value map)
+        #[arg(long = "vars", value_name = "FILE")]
+        vars: Option<PathBuf>,
     },
     /// List trajectories and eval runs
     List {
@@ -306,6 +348,58 @@ enum ViewSubcommand {
     },
 }
 
+/// Parse --var KEY=VALUE flags and optional --vars FILE into a RuntimeContext.
+fn build_runtime_context(
+    var_flags: Vec<String>,
+    vars_file: Option<PathBuf>,
+    input_arg: Option<String>,
+) -> anyhow::Result<RuntimeContext> {
+    let mut vars: HashMap<String, String> = HashMap::new();
+
+    // Load from --vars file first (lower priority)
+    if let Some(ref path) = vars_file {
+        let content = std::fs::read_to_string(path).map_err(|e| {
+            anyhow::anyhow!("Failed to read --vars file '{}': {}", path.display(), e)
+        })?;
+        let file_map: HashMap<String, String> = serde_json::from_str(&content).map_err(|e| {
+            anyhow::anyhow!(
+                "--vars file '{}' must be a JSON object with string values: {}",
+                path.display(),
+                e
+            )
+        })?;
+        vars.extend(file_map);
+    }
+
+    // --var flags override file values
+    for kv in var_flags {
+        let (k, v) = kv
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("--var must be KEY=VALUE, got: {:?}", kv))?;
+        vars.insert(k.to_string(), v.to_string());
+    }
+
+    // Parse --input: detect file vs inline JSON
+    let input = match input_arg {
+        None => None,
+        Some(s) => {
+            // If it starts with '{' or '[', treat as inline JSON; otherwise treat as file path
+            let trimmed = s.trim();
+            if trimmed.starts_with('{') || trimmed.starts_with('[') {
+                // Validate it's parseable JSON before handing to runtime
+                serde_json::from_str::<serde_json::Value>(trimmed).map_err(|e| {
+                    anyhow::anyhow!("--input value looks like JSON but is not valid: {}", e)
+                })?;
+                Some(InputSource::Inline(trimmed.to_string()))
+            } else {
+                Some(InputSource::File(PathBuf::from(s)))
+            }
+        }
+    };
+
+    Ok(RuntimeContext { vars, input })
+}
+
 #[tokio::main]
 async fn main() {
     // Initialize tracing
@@ -379,16 +473,35 @@ async fn main() {
         Commands::Run {
             field_path,
             parent_field,
-        } => commands::run::run_command(field_path, parent_field).await,
+            var,
+            vars,
+            input,
+        } => match build_runtime_context(var, vars, input) {
+            Ok(ctx) => commands::run::run_command(field_path, parent_field, ctx).await,
+            Err(e) => Err(e),
+        },
         Commands::Check {
             field_path,
             parent_field,
-        } => commands::check::check_command(field_path, parent_field),
+            var,
+            vars,
+        } => match build_runtime_context(var, vars, None) {
+            Ok(ctx) => commands::check::check_command(field_path, parent_field, ctx),
+            Err(e) => Err(e),
+        },
         Commands::Converge {
             field_path,
             runs,
             parent_field,
-        } => commands::converge::converge_command(field_path, runs, parent_field).await,
+            var,
+            vars,
+            input,
+        } => match build_runtime_context(var, vars, input) {
+            Ok(ctx) => {
+                commands::converge::converge_command(field_path, runs, parent_field, ctx).await
+            }
+            Err(e) => Err(e),
+        },
         Commands::List { subcommand } => match subcommand {
             ListSubcommand::Trajectories {
                 field_name,
@@ -403,11 +516,18 @@ async fn main() {
             parent_field,
             resume,
             html,
+            var,
+            vars,
         } => {
             if html {
                 commands::view::view_eval(directory.to_string_lossy().to_string(), true)
             } else {
-                commands::eval::eval_command(directory, parent_field, resume).await
+                match build_runtime_context(var, vars, None) {
+                    Ok(ctx) => {
+                        commands::eval::eval_command(directory, parent_field, resume, ctx).await
+                    }
+                    Err(e) => Err(e),
+                }
             }
         }
         Commands::Replay {

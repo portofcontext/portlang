@@ -4899,6 +4899,7 @@ dependencies = [
  "portlang-config",
  "portlang-core",
  "portlang-provider-anthropic",
+ "regex",
  "reqwest 0.13.2",
  "rmcp",
  "serde_json",

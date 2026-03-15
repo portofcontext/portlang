@@ -1,6 +1,7 @@
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
-use portlang_config::{parse_field_with_parent, resolve_parent_config};
+use portlang_config::{apply_runtime_context, parse_field_with_parent, resolve_parent_config};
+use portlang_core::RuntimeContext;
 use portlang_provider_anthropic::AnthropicProvider;
 use portlang_provider_openrouter::OpenRouterProvider;
 use portlang_runtime::{run_field, ModelProvider};
@@ -8,11 +9,16 @@ use portlang_trajectory::{FilesystemStore, TrajectoryStore};
 use std::path::PathBuf;
 
 /// Run a field
-pub async fn run_command(field_path: PathBuf, parent_field: Option<PathBuf>) -> Result<()> {
+pub async fn run_command(
+    field_path: PathBuf,
+    parent_field: Option<PathBuf>,
+    ctx: RuntimeContext,
+) -> Result<()> {
     println!("Running field: {}", field_path.display());
 
     let parent = resolve_parent_config(&field_path, parent_field.as_ref())?;
     let field = parse_field_with_parent(&field_path, parent.as_ref())?;
+    let field = apply_runtime_context(field, &ctx)?;
     println!("Field: {}", field.name);
 
     if let Some(description) = &field.description {
@@ -54,7 +60,7 @@ pub async fn run_command(field_path: PathBuf, parent_field: Option<PathBuf>) -> 
     // Run the field
     progress.enable_steady_tick(std::time::Duration::from_millis(100));
 
-    let trajectory = run_field(&field, provider.as_ref()).await?;
+    let trajectory = run_field(&field, provider.as_ref(), &ctx).await?;
 
     progress.finish_and_clear();
 
