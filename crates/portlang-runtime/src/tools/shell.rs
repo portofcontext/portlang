@@ -5,12 +5,13 @@ use serde_json::Value;
 use std::path::Path;
 use std::process::Command;
 
-/// Tool that executes a shell command template
+/// Tool that executes a shell command template inside the container.
 pub struct ShellCommandHandler {
     name: String,
     description: String,
     command_template: String,
     input_schema: Value,
+    container_id: String,
 }
 
 impl ShellCommandHandler {
@@ -19,12 +20,14 @@ impl ShellCommandHandler {
         description: String,
         command_template: String,
         input_schema: Value,
+        container_id: String,
     ) -> Self {
         Self {
             name,
             description,
             command_template,
             input_schema,
+            container_id,
         }
     }
 
@@ -51,15 +54,16 @@ impl ShellCommandHandler {
 
 #[async_trait]
 impl ToolHandler for ShellCommandHandler {
-    async fn execute(&self, root: &Path, input: Value) -> Result<String> {
+    async fn execute(&self, _root: &Path, input: Value) -> Result<String> {
         let cmd = self.render_command(&input)?;
 
-        let output = Command::new("sh")
-            .arg("-c")
-            .arg(&cmd)
-            .current_dir(root)
+        // All shell tools run inside the container with /workspace as the working directory
+        let output = Command::new("container")
+            .args(["exec", &self.container_id, "sh", "-c", &cmd])
             .output()
-            .map_err(|e| SandboxError::CommandError(format!("Failed to execute command: {}", e)))?;
+            .map_err(|e| {
+                SandboxError::CommandError(format!("Container exec failed for shell tool: {}", e))
+            })?;
 
         if !output.status.success() {
             return Err(SandboxError::ToolError(format!(

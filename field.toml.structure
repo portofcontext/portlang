@@ -65,7 +65,7 @@ transport = "stdio" | "http" | "sse"  # default: stdio
 
 [[verifier]]                    # repeatable; zero or more; type = "shell" | "levenshtein" | "json" | "semantic"
 name = "..."                    # (required) identifier
-trigger = "on_stop" | "always" | "on_write"  # default: on_stop
+trigger = "on_stop" | "always" | "on_tool:<tool_name>"  # default: on_stop
 description = "..."             # injected into context on failure
 
 [[verifier]]

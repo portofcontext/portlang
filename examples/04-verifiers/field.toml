@@ -1,9 +1,9 @@
-name = "builtin-verifiers"
-description = "Demonstrates the three built-in verifier algorithms: levenshtein, json, and semantic"
+name = "verifiers"
+description = "Demonstrates verifier types: custom shell, levenshtein, json, and semantic"
 
-# This example shows how to use built-in verifiers instead of writing shell scripts.
+# This example shows how to use both custom shell verifiers and built-in verifier algorithms.
 # Run with:
-#   portlang run examples/06-builtin-verifiers/field.toml
+#   portlang run examples/04-verifiers/field.toml
 
 [model]
 name = "anthropic/claude-sonnet-4.6"
@@ -33,6 +33,16 @@ allow_write = ["*.txt", "*.json"]
 max_tokens = 30000
 max_cost = "$0.25"
 max_steps = 10
+
+# ── Shell: custom check triggered after every write call ─────────────────────
+# Runs after each tool call named "write". Checks that no unexpected files exist
+# in the workspace (only the three expected output files are allowed).
+[[verifier]]
+type = "shell"
+name = "no-extra-files"
+command = "test $(ls . | grep -v -E '^(greeting\\.txt|profile\\.json|summary\\.txt)$' | wc -l) -eq 0"
+trigger = "on_tool:write"
+description = "Only greeting.txt, profile.json, and summary.txt are allowed in the workspace"
 
 # ── Levenshtein: exact or near-exact text match ──────────────────────────────
 # Passes when the normalized edit-distance similarity is >= threshold.

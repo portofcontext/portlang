@@ -96,7 +96,7 @@ Create a new field.toml
 
    Example: --verifier '{"name":"check-file","command":"test -f result.txt","trigger":"on_stop","description":"result.txt must exist"}'
 
-   trigger: "on_stop" | "always" | "on_write" (default: "on_stop")
+   trigger: "on_stop" | "always" | "on_tool:<tool_name>" (default: "on_stop")
 
 
 

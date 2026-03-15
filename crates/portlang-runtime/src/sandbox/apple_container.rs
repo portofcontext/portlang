@@ -3,7 +3,6 @@ use super::traits::{CommandOutput, Sandbox};
 use crate::tools::ToolRegistry;
 use async_trait::async_trait;
 use portlang_core::{Action, Boundary, Environment};
-use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -66,13 +65,23 @@ impl AppleContainerSandbox {
 
     /// Build container image with additional packages
     async fn build_with_packages(packages: &[String], tag: &str) -> Result<String> {
-        // Separate apt packages from pip packages (uv is not in apt)
-        let apt_packages: Vec<&str> = packages
+        let has_uv = packages.iter().any(|p| p == "uv");
+
+        // uv is installed via its standalone installer, not apt.
+        // curl and ca-certificates are needed for the installer and are removed after.
+        let mut apt_packages: Vec<&str> = packages
             .iter()
             .filter(|p| p.as_str() != "uv")
             .map(|s| s.as_str())
             .collect();
-        let has_uv = packages.iter().any(|p| p == "uv");
+        if has_uv {
+            if !apt_packages.contains(&"curl") {
+                apt_packages.push("curl");
+            }
+            if !apt_packages.contains(&"ca-certificates") {
+                apt_packages.push("ca-certificates");
+            }
+        }
 
         let mut dockerfile_lines = vec!["FROM debian:bookworm-slim".to_string()];
 
@@ -83,10 +92,13 @@ impl AppleContainerSandbox {
             ));
         }
 
-        // uv is installed via pip (requires python3 to already be in apt_packages)
+        // Install uv via the official standalone installer. uv bundles its own Python
+        // runtime so no python3 apt package is required.
         if has_uv {
-            dockerfile_lines
-                .push("RUN python3 -m pip install uv --break-system-packages".to_string());
+            dockerfile_lines.push(
+                "RUN curl -LsSf https://astral.sh/uv/install.sh | env HOME=/root sh".to_string(),
+            );
+            dockerfile_lines.push(r#"ENV PATH="/root/.local/bin:$PATH""#.to_string());
         }
 
         let dockerfile_content = dockerfile_lines.join("\n") + "\n";
@@ -201,43 +213,14 @@ impl AppleContainerSandbox {
         &self.container_id
     }
 
-    /// Normalize a path by stripping /workspace/ prefix
-    ///
-    /// The agent sees "Working Directory: /workspace" and uses absolute paths like "/workspace/file.txt",
-    /// but custom tools run on the host where files are at relative paths like "file.txt".
+    /// Strip the /workspace/ prefix from a path so it can be matched against
+    /// relative allow_write glob patterns. The agent always uses /workspace/ absolute
+    /// paths; boundary patterns are written as relative paths (e.g. "output/**").
     fn normalize_path(path: &str) -> String {
         path.strip_prefix("/workspace/")
             .or_else(|| path.strip_prefix("workspace/"))
             .unwrap_or(path)
             .to_string()
-    }
-
-    /// Recursively normalize paths in a JSON value
-    ///
-    /// Traverses the JSON structure and normalizes any string values that look like paths
-    /// (start with /workspace/ or workspace/)
-    fn normalize_paths_in_value(value: &Value) -> Value {
-        match value {
-            Value::String(s) => {
-                // Normalize if it looks like a workspace path
-                if s.starts_with("/workspace/") || s.starts_with("workspace/") {
-                    Value::String(Self::normalize_path(s))
-                } else {
-                    value.clone()
-                }
-            }
-            Value::Object(map) => {
-                let mut new_map = serde_json::Map::new();
-                for (k, v) in map {
-                    new_map.insert(k.clone(), Self::normalize_paths_in_value(v));
-                }
-                Value::Object(new_map)
-            }
-            Value::Array(arr) => {
-                Value::Array(arr.iter().map(Self::normalize_paths_in_value).collect())
-            }
-            _ => value.clone(),
-        }
     }
 
     fn is_write_allowed(&self, path: &str) -> bool {
@@ -419,13 +402,13 @@ impl Sandbox for AppleContainerSandbox {
                         Ok(result)
                     }
 
-                    // For all other tools, delegate to the registry
-                    // This includes: custom tools (Python, shell), code_mode, MCP tools, etc.
-                    // These run on the host, so we need to normalize /workspace/ paths to relative paths
+                    // All other tools are dispatched through the registry.
+                    // Custom tools (Python, shell) execute inside the container themselves.
+                    // MCP stdio tools run inside the container via `container exec`.
+                    // See CODE_MODE_SANDBOX.md for the remaining gap with code_mode callbacks.
                     _ => {
-                        let normalized_input = Self::normalize_paths_in_value(input);
                         self.registry
-                            .execute(tool.as_str(), &self.host_workspace, normalized_input)
+                            .execute(tool.as_str(), &self.host_workspace, input.clone())
                             .await
                     }
                 }

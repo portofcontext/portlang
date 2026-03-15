@@ -63,7 +63,7 @@ pub struct NewArgs {
     // Verifiers as JSON strings.
     //   {"name":"check-file","command":"test -f result.txt","trigger":"on_stop",
     //    "description":"result.txt must exist"}
-    // trigger: "on_stop" | "always" | "on_write" (default: "on_stop")
+    // trigger: "on_stop" | "always" | "on_tool:<tool_name>" (default: "on_stop")
     pub verifiers: Vec<String>,
 }
 
@@ -691,10 +691,19 @@ fn collect_verifiers(theme: &ColorfulTheme) -> Result<Vec<VerifierConfig>> {
             .interact_text()?;
         let trigger_idx = Select::with_theme(theme)
             .with_prompt("Trigger")
-            .items(&["on_stop", "always", "on_write"])
+            .items(&["on_stop", "always", "on_tool: (specify tool name)"])
             .default(0)
             .interact()?;
-        let trigger = ["on_stop", "always", "on_write"][trigger_idx].to_string();
+        let trigger = match trigger_idx {
+            0 => "on_stop".to_string(),
+            1 => "always".to_string(),
+            _ => {
+                let tool_name: String = Input::with_theme(theme)
+                    .with_prompt("Tool name (e.g. bash, write, python)")
+                    .interact_text()?;
+                format!("on_tool:{}", tool_name)
+            }
+        };
         let description = Input::with_theme(theme)
             .with_prompt("Description (injected into context on failure)")
             .interact_text()?;

@@ -24,6 +24,7 @@ glob = { workspace = true }
 tracing = { workspace = true }
 uuid = { version = "1.11", features = ["v4"] }
 shell-escape = "0.1"
+base64 = "0.22.1"
 rmcp = { version = "1.2.0", features = [
     "client",
     "transport-child-process",

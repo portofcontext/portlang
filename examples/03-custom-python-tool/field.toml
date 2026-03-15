@@ -11,6 +11,9 @@ goal = "Calculate the result of 144 * 259 using the calculator tool. Write the r
 [environment]
 root = "./workspace"
 
+[code_mode]
+enabled = true
+
 [boundary]
 allow_write = ["*.txt"]
 max_tokens = 20000
@@ -25,3 +28,7 @@ type = "python"
 file = "./tools/calculator.py"
 function = "execute"
 # name, description, and input_schema are auto-extracted from the Python function
+
+[[verifier]]
+name = "correct-result"
+command = "grep -q '37296' /workspace/result.txt"

@@ -18,4 +18,9 @@ pub trait ToolHandler: Send + Sync {
 
     /// Input schema (JSON Schema)
     fn input_schema(&self) -> Value;
+
+    /// Output schema (JSON Schema), if known
+    fn output_schema(&self) -> Option<Value> {
+        None
+    }
 }

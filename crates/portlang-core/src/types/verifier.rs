@@ -76,17 +76,40 @@ pub struct Verifier {
 }
 
 /// When to trigger a verifier
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum VerifierTrigger {
     /// Run after every action
     Always,
     /// Run only when agent stops
     #[default]
     OnStop,
-    /// Run after specific tool calls
-    OnWrite,
+    /// Run after any call to a specific tool (e.g. `on_tool:bash`)
+    OnTool(String),
+}
+
+impl serde::Serialize for VerifierTrigger {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            VerifierTrigger::Always => s.serialize_str("always"),
+            VerifierTrigger::OnStop => s.serialize_str("on_stop"),
+            VerifierTrigger::OnTool(name) => s.serialize_str(&format!("on_tool:{}", name)),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for VerifierTrigger {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(d)?;
+        match raw.as_str() {
+            "always" => Ok(VerifierTrigger::Always),
+            "on_stop" => Ok(VerifierTrigger::OnStop),
+            s if s.starts_with("on_tool:") => Ok(VerifierTrigger::OnTool(s[8..].to_string())),
+            _ => Err(serde::de::Error::custom(format!(
+                "unknown trigger '{}'. Must be 'always', 'on_stop', or 'on_tool:<tool_name>'",
+                raw
+            ))),
+        }
+    }
 }
 
 /// Result of running a verifier

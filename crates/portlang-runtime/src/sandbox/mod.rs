@@ -27,7 +27,7 @@ pub async fn create_sandbox(
     environment: &Environment,
     boundary: &Boundary,
     registry: Arc<ToolRegistry>,
-) -> Result<Box<dyn Sandbox>> {
+) -> Result<Arc<dyn Sandbox>> {
     let root = PathBuf::from(&environment.root);
 
     // Always use container sandbox - fail if not available
@@ -38,7 +38,7 @@ pub async fn create_sandbox(
         ));
     }
 
-    Ok(Box::new(
+    Ok(Arc::new(
         AppleContainerSandbox::new(root, boundary.clone(), registry, environment).await?,
     ))
 }

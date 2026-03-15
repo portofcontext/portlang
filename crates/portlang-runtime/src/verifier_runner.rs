@@ -17,10 +17,12 @@ pub async fn run_verifiers(
     let mut results = Vec::new();
 
     for verifier in verifiers {
-        let should_run = match verifier.trigger {
+        let should_run = match &verifier.trigger {
             VerifierTrigger::Always => true,
             VerifierTrigger::OnStop => is_stop,
-            VerifierTrigger::OnWrite => action.tool_name().map(|t| t.as_str()) == Some("write"),
+            VerifierTrigger::OnTool(tool_name) => {
+                action.tool_name().map(|t| t.as_str()) == Some(tool_name.as_str())
+            }
         };
 
         if should_run {

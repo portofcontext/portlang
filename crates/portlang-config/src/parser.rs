@@ -301,10 +301,12 @@ fn convert_raw_field(
             let trigger = match raw_verifier.trigger.as_deref() {
                 Some("always") => VerifierTrigger::Always,
                 Some("on_stop") | None => VerifierTrigger::OnStop,
-                Some("on_write") => VerifierTrigger::OnWrite,
+                Some(s) if s.starts_with("on_tool:") => {
+                    VerifierTrigger::OnTool(s[8..].to_string())
+                }
                 Some(other) => {
                     return Err(FieldParseError::InvalidField(format!(
-                        "Invalid verifier trigger: {}. Must be 'always', 'on_stop', or 'on_write'",
+                        "Invalid verifier trigger: {}. Must be 'always', 'on_stop', or 'on_tool:<tool_name>'",
                         other
                     )))
                 }
@@ -437,7 +439,7 @@ fn convert_raw_field(
                             file: Some(file_path.to_string_lossy().to_string()),
                             function: Some(tool_meta.name),
                             input_schema: raw_tool.input_schema.unwrap_or(tool_meta.input_schema),
-                            output_schema: raw_tool.output_schema,
+                            output_schema: raw_tool.output_schema.or(tool_meta.output_schema),
                             command: None,
                             args: vec![],
                             env: std::collections::HashMap::new(),
@@ -466,7 +468,7 @@ fn convert_raw_field(
                                 file: Some(file_path.to_string_lossy().to_string()),
                                 function: Some(tool_meta.name),
                                 input_schema: tool_meta.input_schema,
-                                output_schema: None,
+                                output_schema: tool_meta.output_schema,
                                 command: None,
                                 args: vec![],
                                 env: std::collections::HashMap::new(),
@@ -637,37 +639,31 @@ fn convert_raw_field(
         }
     }
 
-    // Auto-detect packages based on tools
+    // Auto-detect required container packages based on tool types.
+    // All package inference lives here so there's one place to look.
     let mut auto_packages: Vec<String> = Vec::new();
+    let needs_uv = |pkgs: &Vec<String>| !pkgs.contains(&"uv".to_string());
     for tool in &tools {
         match tool.tool_type.as_str() {
+            // Python tools execute via uv, which bundles its own Python runtime.
             "python" => {
-                if !auto_packages.contains(&"python3".to_string()) {
-                    auto_packages.push("python3".to_string());
+                if needs_uv(&auto_packages) {
+                    auto_packages.push("uv".to_string());
                 }
             }
             "mcp" => {
-                // Check MCP command for package hints
-                if let Some(transport) = &tool.transport {
-                    match transport {
-                        McpTransport::Stdio { command, .. } => {
-                            if command == "npx" || command.ends_with("/npx") {
-                                if !auto_packages.contains(&"nodejs".to_string()) {
-                                    auto_packages.push("nodejs".to_string());
-                                }
-                                if !auto_packages.contains(&"npm".to_string()) {
-                                    auto_packages.push("npm".to_string());
-                                }
-                            } else if command == "uvx" || command.ends_with("/uvx") {
-                                if !auto_packages.contains(&"python3".to_string()) {
-                                    auto_packages.push("python3".to_string());
-                                }
-                                if !auto_packages.contains(&"uv".to_string()) {
-                                    auto_packages.push("uv".to_string());
-                                }
-                            }
+                if let Some(McpTransport::Stdio { command, .. }) = &tool.transport {
+                    if command == "npx" || command.ends_with("/npx") {
+                        if !auto_packages.contains(&"nodejs".to_string()) {
+                            auto_packages.push("nodejs".to_string());
                         }
-                        McpTransport::Sse { .. } => {}
+                        if !auto_packages.contains(&"npm".to_string()) {
+                            auto_packages.push("npm".to_string());
+                        }
+                    } else if (command == "uvx" || command.ends_with("/uvx"))
+                        && needs_uv(&auto_packages)
+                    {
+                        auto_packages.push("uv".to_string());
                     }
                 }
             }
@@ -883,6 +879,61 @@ def add(x: int, y: int = 0) -> int:
         assert_eq!(
             field.tools[1].input_schema["required"],
             serde_json::json!(["x"])
+        );
+        // output_schema extracted from return type hints
+        assert_eq!(
+            field.tools[0].output_schema,
+            Some(serde_json::json!({"type": "string"}))
+        );
+        assert_eq!(
+            field.tools[1].output_schema,
+            Some(serde_json::json!({"type": "integer"}))
+        );
+    }
+
+    #[test]
+    fn test_python_specific_function_output_schema() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut python_file = NamedTempFile::new().unwrap();
+        python_file
+            .write_all(
+                b"
+def calculate(x: int, y: int) -> float:
+    \"\"\"Calculate something.\"\"\"
+    return float(x + y)
+",
+            )
+            .unwrap();
+
+        let python_path = python_file.path().to_string_lossy().to_string();
+
+        let toml = format!(
+            r#"
+            name = "test-field"
+
+            [model]
+            name = "claude-sonnet-4-5"
+
+            [prompt]
+            goal = "Test specific function output schema"
+
+            [[tool]]
+            type = "python"
+            file = "{}"
+            function = "calculate"
+        "#,
+            python_path
+        );
+
+        let field = parse_field_from_str(&toml).unwrap();
+        assert_eq!(field.tools.len(), 1);
+        assert_eq!(field.tools[0].name.as_deref(), Some("calculate"));
+        // output_schema extracted from return type -> float
+        assert_eq!(
+            field.tools[0].output_schema,
+            Some(serde_json::json!({"type": "number"}))
         );
     }
 
@@ -1194,7 +1245,7 @@ root = "./workspace"
 
         let raw: RawParentConfig = toml::from_str(toml).unwrap();
         assert_eq!(raw.model.unwrap().name, "anthropic/claude-sonnet-4-6");
-        assert_eq!(raw.code_mode.unwrap().enabled, true);
+        assert!(raw.code_mode.unwrap().enabled);
         assert_eq!(raw.tool.len(), 1);
     }
 }

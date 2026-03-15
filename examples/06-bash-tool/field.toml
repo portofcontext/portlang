@@ -1,5 +1,5 @@
 name = "bash-tool"
-description = "Demonstrates the built-in bash tool — collects live system info that can only come from executing commands"
+description = "Demonstrates the built-in bash tool — collects live container info that can only come from executing commands"
 
 [model]
 name = "anthropic/claude-sonnet-4.6"

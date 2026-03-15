@@ -31,7 +31,7 @@ pub struct AgentView {
     /// Environment context
     pub env_context: EnvironmentContext,
     /// Sandbox (needed internally for execution)
-    pub(crate) sandbox: Box<dyn crate::sandbox::Sandbox>,
+    pub(crate) sandbox: Arc<dyn crate::sandbox::Sandbox>,
 }
 
 /// Validate field configuration without starting any servers or running the agent.
@@ -70,11 +70,18 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
     // Wrap registry in Arc early so we can share it with sandbox and continue registering tools
     let registry = Arc::new(registry);
 
-    // Create sandbox FIRST so we can get container ID for MCP and Python tools
+    // Create sandbox FIRST so we can get container ID for MCP, Python, and shell tools.
+    // All custom tool execution is sandboxed — the container_id is required.
+    // Package inference (uv for Python tools, nodejs/npm for npx MCP, etc.) is handled
+    // by the config parser before this point.
     let sandbox = create_sandbox(&field.environment, &field.boundary, registry.clone()).await?;
-    let container_id = sandbox.container_id().map(|s| s.to_string());
+    let container_id = sandbox
+        .container_id()
+        .ok_or_else(|| anyhow::anyhow!("Sandbox did not provide a container ID"))?
+        .to_string();
 
-    // Register custom tools from field config (python and shell types)
+    // Register custom tools from field config (python and shell types).
+    // Both types execute inside the container.
     for tool in field
         .tools
         .iter()
@@ -89,6 +96,7 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
                     description,
                     tool.command.clone().unwrap_or_default(),
                     tool.input_schema.clone(),
+                    container_id.clone(),
                 );
                 registry.register(Arc::new(handler));
                 tracing::info!("Registered custom shell tool: {}", name);
@@ -106,6 +114,8 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
                     file_path,
                     tool.function.clone(),
                     tool.input_schema.clone(),
+                    tool.output_schema.clone(),
+                    container_id.clone(),
                 );
                 registry.register(Arc::new(handler));
                 tracing::info!("Registered custom Python tool: {}", name);
@@ -116,6 +126,7 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
 
     // Capture built-in tool definitions before MCP tools are registered,
     // so code mode can register them separately under "Tools" namespace.
+    #[cfg(feature = "code-mode")]
     let builtin_tool_definitions = registry.tool_definitions();
 
     // Build McpServer list from mcp-type tools
@@ -156,7 +167,11 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
         tracing::info!("Initializing {} MCP server(s)", mcp_servers.len());
 
         mcp_manager
-            .initialize_servers(&mcp_servers, field.config_dir.clone(), container_id.clone())
+            .initialize_servers(
+                &mcp_servers,
+                field.config_dir.clone(),
+                Some(container_id.clone()),
+            )
             .await?;
 
         // Discover tools, apply filtering and patches, collect for reuse
@@ -216,16 +231,20 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
             // (captured before MCP tools were registered to avoid including them here)
             for def in builtin_tool_definitions {
                 let tool_name = def.name.clone();
-                let registry_clone = registry.clone();
-                let working_dir = env_context.working_directory.clone();
+                let sandbox_clone = sandbox.clone();
                 let callback: CodeModeCallback =
                     Arc::new(move |args: Option<serde_json::Value>| {
-                        let registry = registry_clone.clone();
+                        let sandbox = sandbox_clone.clone();
                         let name = tool_name.clone();
-                        let root = working_dir.clone();
                         Box::pin(async move {
                             let input_value = args.unwrap_or(serde_json::json!({}));
-                            match registry.execute(&name, &root, input_value).await {
+                            match sandbox
+                                .dispatch(&Action::ToolCall {
+                                    tool: name.into(),
+                                    input: input_value,
+                                })
+                                .await
+                            {
                                 Ok(result_str) => {
                                     // Try to parse result as JSON, fallback to string
                                     match serde_json::from_str(&result_str) {
@@ -243,7 +262,7 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
                         def.name.clone(),
                         Some(def.description.clone()),
                         def.input_schema.clone(),
-                        None, // built-in tools have no output schema
+                        def.output_schema.clone(),
                         callback,
                     )
                     .map_err(|e| anyhow::anyhow!("Failed to register tool: {}", e))?;

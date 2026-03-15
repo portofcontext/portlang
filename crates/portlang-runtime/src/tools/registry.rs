@@ -50,6 +50,7 @@ impl ToolRegistry {
                 name: h.name().to_string(),
                 description: h.description().to_string(),
                 input_schema: h.input_schema(),
+                output_schema: h.output_schema(),
             })
             .collect()
     }
@@ -73,10 +74,65 @@ impl Default for ToolRegistry {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sandbox::error::Result;
+    use async_trait::async_trait;
+    use serde_json::json;
+    use std::path::Path;
+
+    struct MockTool {
+        output_schema: Option<Value>,
+    }
+
+    #[async_trait]
+    impl ToolHandler for MockTool {
+        async fn execute(&self, _root: &Path, _input: Value) -> Result<String> {
+            Ok("ok".to_string())
+        }
+        fn name(&self) -> &str {
+            "mock"
+        }
+        fn description(&self) -> &str {
+            "A mock tool"
+        }
+        fn input_schema(&self) -> Value {
+            json!({})
+        }
+        fn output_schema(&self) -> Option<Value> {
+            self.output_schema.clone()
+        }
+    }
+
+    #[test]
+    fn test_tool_definition_carries_output_schema() {
+        let registry = ToolRegistry::new();
+        let schema = json!({"type": "object", "properties": {"x": {"type": "number"}}});
+        registry.register(Arc::new(MockTool {
+            output_schema: Some(schema.clone()),
+        }));
+        let defs = registry.tool_definitions();
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].output_schema, Some(schema));
+    }
+
+    #[test]
+    fn test_tool_definition_output_schema_none_when_absent() {
+        let registry = ToolRegistry::new();
+        registry.register(Arc::new(MockTool {
+            output_schema: None,
+        }));
+        let defs = registry.tool_definitions();
+        assert_eq!(defs[0].output_schema, None);
+    }
+}
+
 /// Tool definition for API
 #[derive(Debug, Clone)]
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub input_schema: Value,
+    pub output_schema: Option<Value>,
 }
