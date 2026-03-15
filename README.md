@@ -23,8 +23,14 @@ brew install portlang
 ```
 
 ```bash
-export ANTHROPIC_API_KEY=...   # or OPENROUTER_API_KEY
+export ANTHROPIC_API_KEY=... 
+# or
+export OPENROUTER_API_KEY=...
+
 portlang init --install --start
+
+# Install the agent skill to get guided help while building fields
+npx skills add https://github.com/portofcontext/skills --skill portlang
 ```
 
 ## Example
