@@ -35,78 +35,51 @@ npx skills add https://github.com/portofcontext/skills --skill portlang
 
 ## Example
 
-This field calls a Stripe MCP server, returns typed JSON, and verifies the result — parameterized so the same definition works for any customer:
-
 ```toml
-# field.toml (parent — defines shared model and tools)
+# hello-world.field
+name = "hello-world"
+
 [model]
 name = "anthropic/claude-sonnet-4.6"
-temperature = 0.0
-
-[[tool]]
-type = "mcp"
-name = "stripe"
-command = "npx"
-args  = ["-y", "@stripe/mcp"]
-env   = { STRIPE_SECRET_KEY = "${STRIPE_SECRET_KEY}" }
-
-# get-balance/field.toml
-name = "get-balance"
-
-model = "inherit"
-tools = "inherit"
-
-[vars]
-currency = { required = false, default = "usd", description = "Currency to report" }
+temperature = 1.0
 
 [prompt]
-goal = "Get the Stripe account balance and return available and pending amounts in {{ currency }}."
+goal = "Write a Python script called hello.py that prints 'Hello, World!' and stop."
 
 [boundary]
-network = "allow"
-allow_write = ["output.json"]
-max_steps = 10
-max_cost = "$0.50"
-output_schema = """
-{
-  "type": "object",
-  "required": ["available", "pending", "currency"],
-  "properties": {
-    "available": { "type": "integer" },
-    "pending":   { "type": "integer" },
-    "currency":  { "type": "string" }
-  }
-}
-"""
+allow_write = ["*.py"]
+max_steps = 5
+max_cost = "$0.10"
 
 [[verifier]]
-name = "correct-currency"
-type = "json"
-schema = '{"properties": {"currency": {"const": "{{ currency }}"}}}'
-trigger = "on_stop"
-description = "Response must use the requested currency"
+name = "correct-output"
+command = "cd /workspace && python3 hello.py | grep -qF 'Hello, World!'"
+description = "Running the script must print: Hello, World!"
 ```
 
 ```bash
-# Run once
-portlang run get-balance/field.toml --var currency=gbp
-
-# Inject input data into the workspace before the agent starts
-portlang run field.toml --input ./customers.csv
-portlang run field.toml --input '{"customer_id": "cus_123"}'
-
-# Measure reliability across N runs
-portlang converge get-balance/field.toml -n 10
-
-# Run a full eval suite, view results as an HTML dashboard
-portlang eval stripe-benchmark/
-portlang view eval <eval-id>
-
-# Replay any run step-by-step
-portlang view trajectory <id>
+portlang run hello-world.field
+portlang converge hello-world.field -n 10   # measure reliability
+portlang view trajectory <id>               # replay any run step-by-step
 ```
 
-Key concepts: `[vars]` declares `{{ placeholders }}` resolved at runtime via `--var`. `[boundary]` enforces hard limits in the sandbox. `[[verifier]]` defines success criteria that run automatically and inject feedback into the context window. `output_schema` requires the agent to submit typed JSON via `submit_output`.
+### Eval suites with `parent.field`
+
+Place a `parent.field` at the root of an eval directory to share model, tools, and boundary config across all child fields:
+
+```
+stripe-benchmark/
+  parent.field          ← shared model + tools
+  01-get-balance/
+    get-balance.field   ← model = "inherit", tools = "inherit"
+  02-list-customers/
+    list-customers.field
+```
+
+```bash
+portlang eval stripe-benchmark/
+portlang view eval <eval-id>
+```
 
 ---
 
@@ -125,7 +98,7 @@ Key concepts: `[vars]` declares `{{ placeholders }}` resolved at runtime via `--
 
 Agent code runs in isolated containers via [Apple Container](https://developer.apple.com/documentation/virtualization). Network is denied by default. Write access is explicitly granted via glob patterns. Hard ceilings on steps, cost, and context size.
 
-Treat `field.toml` as code. Review tool definitions and boundary policies before running untrusted fields.
+Treat `.field` files as code. Review tool definitions and boundary policies before running untrusted fields.
 
 ---
 
@@ -134,5 +107,5 @@ Treat `field.toml` as code. Review tool definitions and boundary policies before
 | | |
 |---|---|
 | [examples/](examples/) | Annotated examples covering all features |
-| [field.toml.structure](field.toml.structure) | Full reference for every field.toml option |
+| [field.structure](field.structure) | Full reference for every .field option |
 | [CLI.md](CLI.md) | All commands and flags |

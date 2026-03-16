@@ -32,7 +32,7 @@ portlang - agent runtime with structured tools and verifiers
 
 ###### **Subcommands:**
 
-* `new` — Create a new field.toml
+* `new` — Create a new .field file
 * `init` — Initialize and check portlang environment
 * `run` — Run a field
 * `check` — Check a field for errors
@@ -49,13 +49,13 @@ portlang - agent runtime with structured tools and verifiers
 
 ## `portlang new`
 
-Create a new field.toml
+Create a new .field file
 
 **Usage:** `portlang new [OPTIONS] [PATH]`
 
 ###### **Arguments:**
 
-* `<PATH>` — Output path (file or directory); defaults to ./field.toml
+* `<PATH>` — Output path (file or directory); defaults to ./{name}.field
 
 ###### **Options:**
 
@@ -121,11 +121,11 @@ Run a field
 
 ###### **Arguments:**
 
-* `<FIELD_PATH>` — Path to the field TOML file
+* `<FIELD_PATH>` — Path to the field file (.field or .toml)
 
 ###### **Options:**
 
-* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
+* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field to inherit from (auto-detected from ../*.field if not set)
 * `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable, e.g. --var customer_id=123)
 * `--vars <FILE>` — JSON file containing template variables (key→value map)
 * `--input <FILE_OR_JSON>` — Input data to stage into the workspace: path to a file or inline JSON string
@@ -140,11 +140,11 @@ Check a field for errors
 
 ###### **Arguments:**
 
-* `<FIELD_PATH>` — Path to the field TOML file
+* `<FIELD_PATH>` — Path to the field file (.field or .toml)
 
 ###### **Options:**
 
-* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
+* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field to inherit from (auto-detected from ../*.field if not set)
 * `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable)
 * `--vars <FILE>` — JSON file containing template variables (key→value map)
 
@@ -158,14 +158,14 @@ Run a field N times and measure convergence reliability
 
 ###### **Arguments:**
 
-* `<FIELD_PATH>` — Path to the field TOML file
+* `<FIELD_PATH>` — Path to the field file (.field or .toml)
 
 ###### **Options:**
 
 * `-n`, `--runs <RUNS>` — Number of runs to execute
 
   Default value: `10`
-* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
+* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field to inherit from (auto-detected from ../*.field if not set)
 * `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable)
 * `--vars <FILE>` — JSON file containing template variables (key→value map)
 * `--input <FILE_OR_JSON>` — Input data to stage into the workspace: path to a file or inline JSON string
@@ -180,11 +180,11 @@ Run all fields in a directory and report aggregate accuracy
 
 ###### **Arguments:**
 
-* `<DIRECTORY>` — Directory containing field.toml files (searched recursively)
+* `<DIRECTORY>` — Directory containing .field files (searched recursively)
 
 ###### **Options:**
 
-* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field.toml to inherit from (defaults to <directory>/field.toml if present)
+* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field to inherit from (defaults to <directory>/field.field if present)
 * `--resume <RESUME>` — Resume a previous eval run, skipping fields that already passed
 * `--html` — Generate HTML dashboard instead of CLI output
 * `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable)

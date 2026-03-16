@@ -18,9 +18,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Create a new field.toml
+    /// Create a new .field file
     New {
-        /// Output path (file or directory); defaults to ./field.toml
+        /// Output path (file or directory); defaults to ./{name}.field
         path: Option<PathBuf>,
 
         /// Walk through field creation step by step
@@ -117,10 +117,10 @@ enum Commands {
     },
     /// Run a field
     Run {
-        /// Path to the field TOML file
+        /// Path to the field file (.field or .toml)
         field_path: PathBuf,
 
-        /// Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
+        /// Path to a parent field to inherit from (auto-detected from ../*.field if not set)
         #[arg(short = 'p', long)]
         parent_field: Option<PathBuf>,
 
@@ -138,10 +138,10 @@ enum Commands {
     },
     /// Check a field for errors
     Check {
-        /// Path to the field TOML file
+        /// Path to the field file (.field or .toml)
         field_path: PathBuf,
 
-        /// Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
+        /// Path to a parent field to inherit from (auto-detected from ../*.field if not set)
         #[arg(short = 'p', long)]
         parent_field: Option<PathBuf>,
 
@@ -155,14 +155,14 @@ enum Commands {
     },
     /// Run a field N times and measure convergence reliability
     Converge {
-        /// Path to the field TOML file
+        /// Path to the field file (.field or .toml)
         field_path: PathBuf,
 
         /// Number of runs to execute
         #[arg(short = 'n', long, default_value = "10")]
         runs: usize,
 
-        /// Path to a parent field.toml to inherit from (auto-detected from ../field.toml if not set)
+        /// Path to a parent field to inherit from (auto-detected from ../*.field if not set)
         #[arg(short = 'p', long)]
         parent_field: Option<PathBuf>,
 
@@ -180,10 +180,10 @@ enum Commands {
     },
     /// Run all fields in a directory and report aggregate accuracy
     Eval {
-        /// Directory containing field.toml files (searched recursively)
+        /// Directory containing .field files (searched recursively)
         directory: PathBuf,
 
-        /// Path to a parent field.toml to inherit from (defaults to <directory>/field.toml if present)
+        /// Path to a parent field to inherit from (defaults to <directory>/field.field if present)
         #[arg(short = 'p', long)]
         parent_field: Option<PathBuf>,
 

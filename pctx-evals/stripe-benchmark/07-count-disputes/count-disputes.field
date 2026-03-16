@@ -1,0 +1,33 @@
+name = "07_count_disputes"
+description = "Returns the number of disputes and the sum of their related payment amounts"
+
+model = "inherit"
+tools = "inherit"
+
+[prompt]
+goal = """
+You have access to a Stripe MCP server connected to a test account.
+
+Task: Count the number of disputes in my Stripe account and return the count and the total amount of their related payments as structured JSON.
+"""
+
+[environment]
+root = "./workspace"
+dockerfile = "inherit"
+
+
+[boundary]
+network = "allow"
+max_tokens = 150000
+max_cost = "$2.00"
+max_steps = 50
+output_schema = """
+{
+  "type": "object",
+  "required": ["dispute_count", "total_amount"],
+  "properties": {
+    "dispute_count": { "type": "integer", "minimum": 0 },
+    "total_amount":  { "type": "integer", "minimum": 0 }
+  }
+}
+"""

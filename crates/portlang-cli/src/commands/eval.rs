@@ -7,6 +7,7 @@ use portlang_provider_openrouter::OpenRouterProvider;
 use portlang_runtime::{run_field, validate_field_config, ModelProvider};
 use portlang_trajectory::{EvalRun, EvalRunStore, FilesystemStore, TrajectoryStore};
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
@@ -17,7 +18,7 @@ struct TaskResult {
     steps: usize,
 }
 
-/// Run all field.toml files found recursively in `directory` and report aggregate accuracy.
+/// Run all .field files found recursively in `directory` and report aggregate accuracy.
 /// If `resume_id` is provided, load that eval run and skip fields that already passed.
 pub async fn eval_command(
     directory: PathBuf,
@@ -25,7 +26,7 @@ pub async fn eval_command(
     resume_id: Option<String>,
     ctx: RuntimeContext,
 ) -> Result<()> {
-    // Load parent config: explicit -p flag takes priority, then directory/field.toml
+    // Load parent config: explicit -p flag takes priority, then look for a .field or field.toml at the directory root
     let parent = if let Some(ref explicit) = parent_field {
         let p = parse_parent_config(explicit)?;
         if p.is_some() {
@@ -33,7 +34,14 @@ pub async fn eval_command(
         }
         p
     } else {
-        let parent_path = directory.join("field.toml");
+        // Check for parent.field first (canonical), then field.field, then field.toml (backward compat)
+        let parent_path = if directory.join("parent.field").exists() {
+            directory.join("parent.field")
+        } else if directory.join("field.field").exists() {
+            directory.join("field.field")
+        } else {
+            directory.join("field.toml")
+        };
         let p = parse_parent_config(&parent_path)?;
         if p.is_some() {
             println!("Using parent config from {}", parent_path.display());
@@ -41,24 +49,32 @@ pub async fn eval_command(
         p
     };
 
-    // Collect field.toml paths from subdirectories only (skip the root field.toml)
-    let root_field_toml = directory.join("field.toml").canonicalize().ok();
+    // Collect .field paths from subdirectories (and field.toml for backward compat), skipping the root parent file
+    let root_parent = {
+        let a = directory.join("parent.field").canonicalize().ok();
+        let b = directory.join("field.field").canonicalize().ok();
+        let c = directory.join("field.toml").canonicalize().ok();
+        a.or(b).or(c)
+    };
     let mut field_paths: Vec<PathBuf> = WalkDir::new(&directory)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.file_name() == "field.toml")
+        .filter(|e| {
+            let path = e.path();
+            path.extension() == Some(OsStr::new("field")) || e.file_name() == "field.toml"
+        })
         .map(|e| e.into_path())
         .filter(|p| {
-            // Skip the root-level field.toml (parent template)
+            // Skip the root-level parent file
             let canonical = p.canonicalize().ok();
-            canonical != root_field_toml
+            canonical != root_parent
         })
         .collect();
 
     field_paths.sort();
 
     if field_paths.is_empty() {
-        println!("No field.toml files found in {}", directory.display());
+        println!("No .field files found in {}", directory.display());
         return Ok(());
     }
 

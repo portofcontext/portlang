@@ -70,13 +70,11 @@ pub struct NewArgs {
 pub fn new_command(args: NewArgs) -> Result<()> {
     if args.interactive {
         new_interactive(args.path)
-    } else if args.name.is_none()
-        && args.goal.is_none()
-        && args.tools.is_empty()
-        && args.verifiers.is_empty()
-    {
-        // Plain `portlang new` with no meaningful args → write a blank template
-        new_template(args.path)
+    } else if args.name.is_none() {
+        anyhow::bail!("--name is required (or use --interactive / -i)");
+    } else if args.goal.is_none() && args.tools.is_empty() && args.verifiers.is_empty() {
+        // Name provided but no other args → write a blank template with the given name
+        new_template(args.path, args.name.unwrap())
     } else {
         new_from_args(args)
     }
@@ -122,7 +120,7 @@ fn new_from_args(args: NewArgs) -> Result<()> {
         verifiers: &verifiers,
     });
 
-    let path = resolve_output_path(args.path)?;
+    let path = resolve_output_path(args.path, Some(&name))?;
     write_field(&path, &content, &tools)?;
 
     println!("Created {}", path.display());
@@ -211,33 +209,17 @@ fn parse_verifier_json(json: &str) -> Result<VerifierConfig> {
 
 // ─── Template (no args at all) ───────────────────────────────────────────────
 
-fn new_template(output: Option<PathBuf>) -> Result<()> {
-    let path = resolve_output_path(output)?;
+fn new_template(output: Option<PathBuf>, name: String) -> Result<()> {
+    let path = resolve_output_path(output, Some(&name))?;
 
-    let content = r#"name = "my-field"
-description = "A brief description of what this field does"
-
-[model]
-name = "anthropic/claude-sonnet-4.6"
-temperature = 1.0
-
-[prompt]
-goal = """
-Describe the task here.
-"""
-
-[boundary]
-allow_write = ["result.txt"]
-max_tokens = 50000
-max_cost = "$1.00"
-max_steps = 20
-
-[[verifier]]
-name = "result-exists"
-command = "test -f result.txt"
-trigger = "on_stop"
-description = "result.txt must exist"
-"#;
+    let content = format!(
+        "name = \"{name}\"\ndescription = \"A brief description of what this field does\"\n\n\
+[model]\nname = \"anthropic/claude-sonnet-4.6\"\ntemperature = 1.0\n\n\
+[prompt]\ngoal = \"\"\"\nWrite 'Hello, world!' to result.txt.\n\"\"\"\n\n\
+[boundary]\nallow_write = [\"result.txt\"]\nmax_tokens = 50000\nmax_cost = \"$1.00\"\nmax_steps = 20\n\n\
+[[verifier]]\nname = \"result-exists\"\ncommand = \"test -f result.txt\"\ntrigger = \"on_stop\"\ndescription = \"result.txt must exist\"\n",
+        name = name
+    );
 
     std::fs::write(&path, content)
         .with_context(|| format!("Failed to write {}", path.display()))?;
@@ -254,7 +236,7 @@ description = "result.txt must exist"
 fn new_interactive(output: Option<PathBuf>) -> Result<()> {
     let theme = ColorfulTheme::default();
 
-    println!("Creating a new field.toml\n");
+    println!("Creating a new .field\n");
 
     // Name
     let name: String = Input::with_theme(&theme)
@@ -378,7 +360,7 @@ fn new_interactive(output: Option<PathBuf>) -> Result<()> {
         verifiers: &verifiers,
     });
 
-    let path = resolve_output_path(output)?;
+    let path = resolve_output_path(output, Some(&name))?;
     write_field(&path, &content, &tools)?;
 
     println!("\nNext steps:");
@@ -742,11 +724,15 @@ fn read_multiline(theme: &ColorfulTheme) -> Result<String> {
 
 // ─── File writing ─────────────────────────────────────────────────────────────
 
-fn resolve_output_path(output: Option<PathBuf>) -> Result<PathBuf> {
-    let path = output.unwrap_or_else(|| PathBuf::from("field.toml"));
+fn resolve_output_path(output: Option<PathBuf>, name: Option<&str>) -> Result<PathBuf> {
+    let default_name = name
+        .map(|n| format!("{}.field", n))
+        .unwrap_or_else(|| "field.field".to_string());
+
+    let path = output.unwrap_or_else(|| PathBuf::from(&default_name));
 
     let path = if path.is_dir() {
-        path.join("field.toml")
+        path.join(&default_name)
     } else {
         path
     };

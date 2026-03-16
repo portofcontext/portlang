@@ -402,7 +402,7 @@ impl PythonToolExtractor {
 
         // If type hint looks like a class name (starts with uppercase letter),
         // treat it as a custom class/object type
-        if type_hint.chars().next().map_or(false, |c| c.is_uppercase()) {
+        if type_hint.chars().next().is_some_and(|c| c.is_uppercase()) {
             return Ok(json!({"type": "object"}));
         }
 

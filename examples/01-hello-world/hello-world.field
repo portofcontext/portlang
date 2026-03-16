@@ -1,0 +1,38 @@
+name = "hello-world"
+description = "The simplest possible field — demonstrates template variables"
+
+[vars]
+language = { required = false, default = "Python", description = "Programming language to use" }
+greeting = { required = false, default = "Hello, World!", description = "Text to print" }
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 1.0
+
+[prompt]
+goal = """
+Write a {{ language }} script called hello that prints "{{ greeting }}" to the console.
+After creating the file, stop.
+"""
+
+[environment]
+root = "./workspace"
+packages = ["python3"] # for correct-output verifier
+
+[boundary]
+allow_write = ["*.py", "*.js", "*.rb", "*.sh"]
+max_tokens = 10000
+max_cost = "$0.10"
+max_steps = 5
+
+[[verifier]]
+name = "file-exists"
+command = "ls /workspace/hello.*"
+trigger = "on_stop"
+description = "A script named hello.* must exist in the workspace"
+
+[[verifier]]
+name = "correct-output"
+command = "cd /workspace && python3 hello.py | grep -qF '{{ greeting }}'"
+trigger = "on_stop"
+description = "Running the script must print: {{ greeting }}"

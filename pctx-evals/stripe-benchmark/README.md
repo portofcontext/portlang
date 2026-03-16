@@ -39,5 +39,5 @@ This matches the exact state defined in `fixtures.json` for consistent eval runs
 
 - `fixtures.json` - Stripe test data (500 customers, products, prices, coupons)
 - `reset-fixtures.sh` - One-command reset to clean state
-- `field.toml` - Eval configuration
+- `field.field` - Parent eval configuration (shared model and tools)
 - `01-get-balance/` through `12-create-payment-link/` - Individual eval test cases

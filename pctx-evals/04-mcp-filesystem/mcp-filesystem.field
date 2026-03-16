@@ -1,0 +1,55 @@
+name = "mcp-filesystem-test"
+description = "Test MCP filesystem server integration with Code Mode"
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.0
+
+[prompt]
+goal = """
+You have access to an MCP filesystem server.
+
+Task:
+1. Write a file named "test.txt" with the content "Hello from MCP!"
+2. Read the file back to verify it was created
+3. List the directory to confirm the file exists
+
+Use Code Mode to chain these MCP operations together.
+Stop once you've verified the file was created successfully.
+"""
+
+[environment]
+root = "./workspace"
+
+[boundary]
+allow_write = ["test.txt"]
+network = "allow"
+max_tokens = 150000
+max_cost = "$2.00"
+max_steps = 20
+
+[[tool]]
+type = "mcp"
+name = "filesystem"
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+
+[[verifier]]
+name = "file-created"
+command = """
+if [ -f "test.txt" ]; then
+    content=$(cat test.txt)
+    if [ "$content" = "Hello from MCP!" ]; then
+        echo "✓ File created with correct content"
+        exit 0
+    else
+        echo "✗ File content incorrect: $content"
+        exit 1
+    fi
+else
+    echo "✗ File not found"
+    exit 1
+fi
+"""
+trigger = "on_stop"
+description = "Verify test.txt was created with correct content"

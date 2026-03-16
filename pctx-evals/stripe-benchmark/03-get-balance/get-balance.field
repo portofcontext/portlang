@@ -1,0 +1,34 @@
+name = "03_get_balance"
+description = "Returns Stripe Account balance information with available and pending amounts which are both 0 in this test account"
+
+model = "inherit"
+tools = "inherit"
+
+[prompt]
+goal = """
+You have access to a Stripe MCP server connected to a test account.
+
+Task: What is the current balance on this Stripe account? Include both available and pending amounts. Return your answer as structured JSON.
+"""
+
+[environment]
+root = "./workspace"
+dockerfile = "inherit"
+
+
+[boundary]
+network = "allow"
+max_tokens = 150000
+max_cost = "$2.00"
+max_steps = 50
+output_schema = """
+{
+  "type": "object",
+  "required": ["available_amount", "pending_amount", "currency"],
+  "properties": {
+    "available_amount": { "type": "integer", "const": 0 },
+    "pending_amount":   { "type": "integer", "const": 0 },
+    "currency":         { "type": "string" }
+  }
+}
+"""

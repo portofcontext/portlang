@@ -1,0 +1,54 @@
+name = "multi-step-pipeline-code-mode"
+description = "Multi-step data transformation pipeline with Code Mode"
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.0
+
+[prompt]
+goal = """
+You have CSV data and transformation tools available.
+
+Task:
+1. Load sales.csv (contains product sales by region)
+2. Calculate revenue for each sale (price * quantity)
+3. Group sales by region
+4. Sum the revenue for each region
+5. Write the regional totals to summary.json
+
+Format: {"North": 145000, "South": 98000, ...}
+
+With Code Mode, you can chain these operations without intermediate tool calls.
+Stop once summary.json is created.
+"""
+
+[environment]
+root = "./workspace"
+
+[boundary]
+allow_write = ["summary.json"]
+network = "deny"
+max_tokens = 150000
+max_cost = "$2.00"
+max_steps = 20
+
+[[tool]]
+type = "python"
+file = "./tools/pipeline_tools.py"
+
+[[verifier]]
+name = "correct-aggregation"
+command = """
+python3 -c "
+import json
+with open('summary.json') as f:
+    summary = json.load(f)
+expected = {'North': 145000, 'South': 98000, 'East': 134000, 'West': 112000}
+for region, revenue in expected.items():
+    assert region in summary, f'Missing region: {region}'
+    assert abs(summary[region] - revenue) < 1, f'Wrong revenue for {region}'
+print('✓ Regional summary correct')
+"
+"""
+trigger = "on_stop"
+description = "Regional revenue totals are correct"

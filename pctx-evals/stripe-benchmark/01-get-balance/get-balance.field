@@ -1,0 +1,33 @@
+name = "01_get_balance"
+description = "Test retrieving the stripe balance"
+
+model = "inherit"
+tools = "inherit"
+
+[prompt]
+goal = """
+You have access to a Stripe MCP server.
+
+Task: Get the account balance. Return the available and pending amounts as structured JSON.
+"""
+
+[environment]
+root = "./workspace"
+dockerfile = "inherit"
+
+[boundary]
+network = "allow"
+max_tokens = 150000
+max_cost = "$2.00"
+max_steps = 20
+output_schema = """
+{
+  "type": "object",
+  "required": ["available_amount", "pending_amount", "currency"],
+  "properties": {
+    "available_amount": { "type": "integer" },
+    "pending_amount":   { "type": "integer" },
+    "currency":         { "type": "string" }
+  }
+}
+"""

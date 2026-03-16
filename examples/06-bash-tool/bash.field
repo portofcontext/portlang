@@ -1,0 +1,50 @@
+name = "bash-tool"
+description = "Demonstrates the built-in bash tool — collects live container info that can only come from executing commands"
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.5
+
+[prompt]
+system = """
+You have a bash tool available. Use it. Do NOT write files from memory or training knowledge.
+If the task requires data, fetch or compute it with bash first, then write the result.
+"""
+goal = """
+Use bash to collect the following information about this system and write it to sysinfo.txt:
+
+1. The OS and kernel version (uname -a)
+2. Disk usage summary (df -h /)
+3. Memory info (free -m)
+4. Current date and time (date -u)
+
+Format the output with clear section headers for each item.
+"""
+
+[environment]
+root = "./workspace"
+
+[boundary]
+allow_write = ["sysinfo.txt"]
+network = "deny"
+max_tokens = 30000
+max_cost = "$0.05"
+max_steps = 10
+
+[[verifier]]
+name = "file-exists"
+command = "test -f sysinfo.txt && test -s sysinfo.txt"
+trigger = "on_stop"
+description = "sysinfo.txt must exist and be non-empty"
+
+[[verifier]]
+name = "contains-linux"
+command = "grep -qi 'linux' sysinfo.txt"
+trigger = "on_stop"
+description = "sysinfo.txt must contain real kernel info (Linux)"
+
+[[verifier]]
+name = "contains-date"
+command = "grep -q '2026' sysinfo.txt"
+trigger = "on_stop"
+description = "sysinfo.txt must contain the current year (2026) from a real date command"

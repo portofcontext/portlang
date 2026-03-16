@@ -14,6 +14,7 @@ function findServerExecutable(context: vscode.ExtensionContext): string | undefi
   // 1. Bundled binary (published extension)
   const bundled = path.join(context.extensionPath, 'bin', 'portlang-lsp');
   if (fs.existsSync(bundled)) {
+    try { fs.chmodSync(bundled, 0o755); } catch (_) {}
     return bundled;
   }
 

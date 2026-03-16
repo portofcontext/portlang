@@ -1,0 +1,28 @@
+name = "github-copilot-mcp-test"
+description = "Test GitHub Copilot MCP server integration via HTTP/SSE transport"
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.0
+
+[prompt]
+goal = "Use GitHub Copilot MCP to search for code examples and get file contents"
+
+[environment]
+root = "./workspace"
+
+[[tool]]
+type = "mcp"
+name = "github-copilot"
+transport = "sse"
+url = "https://api.githubcopilot.com/mcp/"
+headers = { Authorization = "Bearer ${GITHUB_MCP_PAT}" }
+
+[boundary]
+max_steps = 5
+
+[[verifier]]
+name = "used-mcp-tool"
+command = "grep -q 'github-copilot' trajectory.json"
+trigger = "on_stop"
+description = "Verify that MCP tools from GitHub Copilot were discovered and potentially used"

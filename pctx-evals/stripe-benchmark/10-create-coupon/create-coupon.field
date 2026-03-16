@@ -1,0 +1,43 @@
+name = "10_create_coupon"
+description = "Reports the before count, creates a 25.5% off one-time-use coupon named EVAL25 with full JSON data, reports the after count, and confirms the count increased by 1"
+
+model = "inherit"
+tools = "inherit"
+
+[prompt]
+goal = """
+You have access to a Stripe MCP server connected to a test account.
+
+Task: First, count how many coupons exist. Then create a one-time-use 25.5% off coupon with the name "EVAL25" that applies to all products. Then count coupons again. Return the before count, the created coupon data, and the after count as structured JSON.
+"""
+
+[environment]
+root = "./workspace"
+dockerfile = "inherit"
+
+
+[boundary]
+network = "allow"
+max_tokens = 150000
+max_cost = "$2.00"
+max_steps = 50
+output_schema = """
+{
+  "type": "object",
+  "required": ["before_count", "coupon", "after_count"],
+  "properties": {
+    "before_count": { "type": "integer", "minimum": 0 },
+    "coupon": {
+      "type": "object",
+      "required": ["id", "name", "percent_off", "max_redemptions"],
+      "properties": {
+        "id":               { "type": "string" },
+        "name":             { "type": "string", "const": "EVAL25" },
+        "percent_off":      { "type": "number", "const": 25.5 },
+        "max_redemptions":  { "type": "integer", "const": 1 }
+      }
+    },
+    "after_count": { "type": "integer", "minimum": 1 }
+  }
+}
+"""

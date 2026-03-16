@@ -1,0 +1,34 @@
+name = "04_find_expensive_product"
+description = "Returns the Team Training Weekend product because its the most expensive product at GBP 999,999.99"
+
+model = "inherit"
+tools = "inherit"
+
+[prompt]
+goal = """
+You have access to a Stripe MCP server connected to a test account.
+
+Task: What's the most expensive product in my Stripe account? Return the product name and price as structured JSON.
+"""
+
+[environment]
+root = "./workspace"
+dockerfile = "inherit"
+
+
+[boundary]
+network = "allow"
+max_tokens = 150000
+max_cost = "$2.00"
+max_steps = 50
+output_schema = """
+{
+  "type": "object",
+  "required": ["name", "amount", "currency"],
+  "properties": {
+    "name":     { "type": "string", "const": "Team Training Weekend" },
+    "amount":   { "type": "integer" },
+    "currency": { "type": "string" }
+  }
+}
+"""

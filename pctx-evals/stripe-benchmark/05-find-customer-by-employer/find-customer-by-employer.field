@@ -1,0 +1,32 @@
+name = "05_find_customer_by_employer"
+description = "Returns the Stripe customer ID for the DevOps Manager at Sable Technologies who works on CI/CD pipeline integration"
+
+model = "inherit"
+tools = "inherit"
+
+[prompt]
+goal = """
+You have access to a Stripe MCP server connected to a test account.
+
+Task: Find the Stripe customer ID for the person who works on CI/CD pipeline integration at Sable Technologies. Return the customer ID as structured JSON.
+"""
+
+[environment]
+root = "./workspace"
+dockerfile = "inherit"
+
+
+[boundary]
+network = "allow"
+max_tokens = 150000
+max_cost = "$5.00"
+max_steps = 50
+output_schema = """
+{
+  "type": "object",
+  "required": ["customer_id"],
+  "properties": {
+    "customer_id": { "type": "string", "const": "cus_U7JPAF3VYkh5H7" }
+  }
+}
+"""

@@ -1,0 +1,43 @@
+name = "structured-output-demo"
+description = "Example demonstrating structured output validation"
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.0
+
+[prompt]
+goal = """
+Analyze the files in the workspace and provide a report with:
+- Overall status (success or failure)
+- Count of files found
+- List of all file names
+- Brief summary of what you found
+"""
+
+[environment]
+root = "./workspace"
+
+[boundary]
+network = "deny"
+max_tokens = 100000
+max_cost = "$1.00"
+max_steps = 10
+output_schema = """
+{
+  "type": "object",
+  "required": ["status", "file_count", "files", "summary"],
+  "properties": {
+    "status":     { "type": "string", "enum": ["success", "failure"] },
+    "file_count": { "type": "integer", "minimum": 0 },
+    "files":      { "type": "array", "items": { "type": "string" } },
+    "summary":    { "type": "string" }
+  }
+}
+"""
+
+[[verifier]]
+name = "status-is-success"
+type = "json"
+schema = '{"properties": {"status": {"const": "success"}}}'
+trigger = "on_stop"
+description = "status must be success"

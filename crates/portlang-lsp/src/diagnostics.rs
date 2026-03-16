@@ -1,7 +1,20 @@
-use portlang_config::raw::{InheritOr, RawField};
+use portlang_config::raw::{InheritOr, RawField, RawParentConfig};
 use tower_lsp::lsp_types::*;
 
-pub fn diagnostics_for(text: &str) -> Vec<Diagnostic> {
+/// Returns true if the given filename (stem) indicates a parent/template field.
+fn is_parent_filename(filename: &str) -> bool {
+    let stem = filename.trim_end_matches(".field");
+    stem == "parent" || stem == "field"
+}
+
+pub fn diagnostics_for(text: &str, filename: &str) -> Vec<Diagnostic> {
+    if is_parent_filename(filename) {
+        // Parent fields are validated as RawParentConfig — they have no required [prompt]
+        return match toml::from_str::<RawParentConfig>(text) {
+            Ok(_) => vec![],
+            Err(err) => vec![toml_error_to_diagnostic(text, &err)],
+        };
+    }
     match toml::from_str::<RawField>(text) {
         Ok(raw) => validate_raw(&raw),
         Err(err) => vec![toml_error_to_diagnostic(text, &err)],

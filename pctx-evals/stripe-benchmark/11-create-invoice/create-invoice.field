@@ -1,0 +1,45 @@
+name = "11_create_invoice"
+description = "Creates a draft invoice for charlotte.souza@synapseio.com including data migration ($5000) and white glove onboarding ($2500), total $7500"
+
+model = "inherit"
+tools = "inherit"
+
+[prompt]
+goal = """
+You have access to a Stripe MCP server connected to a test account.
+
+Task: Create an invoice for Charlotte Souza (charlotte.souza@synapseio.com) for two services: a Data Migration Service at $5,000 and White-Glove Onboarding at $2,500. Use the existing products in the catalog. Create new prices at the specified amounts if no matching price exists. Return the invoice ID, line items, and total as structured JSON.
+"""
+
+[environment]
+root = "./workspace"
+dockerfile = "inherit"
+
+
+[boundary]
+network = "allow"
+max_tokens = 150000
+max_cost = "$5.00"
+max_steps = 50
+output_schema = """
+{
+  "type": "object",
+  "required": ["invoice_id", "total", "line_items"],
+  "properties": {
+    "invoice_id": { "type": "string" },
+    "total":      { "type": "integer", "const": 750000 },
+    "line_items": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["description", "amount"],
+        "properties": {
+          "description": { "type": "string" },
+          "amount":      { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  }
+}
+"""

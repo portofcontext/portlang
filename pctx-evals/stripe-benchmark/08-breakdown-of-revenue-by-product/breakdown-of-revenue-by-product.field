@@ -1,0 +1,33 @@
+name = "08_find_active_subscription"
+description = "Returns the subscription ID and customer ID for the account's one active subscription"
+
+model = "inherit"
+tools = "inherit"
+
+[prompt]
+goal = """
+You have access to a Stripe MCP server connected to a test account.
+
+Task: Find the active subscription in this account. Return the subscription ID and customer ID as structured JSON.
+"""
+
+[environment]
+root = "./workspace"
+dockerfile = "inherit"
+
+
+[boundary]
+network = "allow"
+max_tokens = 150000
+max_cost = "$2.00"
+max_steps = 20
+output_schema = """
+{
+  "type": "object",
+  "required": ["subscription_id", "customer_id"],
+  "properties": {
+    "subscription_id": { "type": "string", "const": "sub_1T94jeICegwS4jvErlauDPFM" },
+    "customer_id":     { "type": "string", "const": "cus_U7JMREj0hqqV1U" }
+  }
+}
+"""

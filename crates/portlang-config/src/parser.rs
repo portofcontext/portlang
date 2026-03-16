@@ -27,7 +27,7 @@ fn normalize_path(path: &Path) -> PathBuf {
     components.iter().collect()
 }
 
-/// Resolved parent config from a parent field.toml (suite-level template)
+/// Resolved parent config from a parent field file (suite-level template)
 #[derive(Debug, Clone)]
 pub struct ParentConfig {
     pub model: Option<RawModel>,
@@ -38,7 +38,7 @@ pub struct ParentConfig {
     pub dockerfile: Option<String>,
 }
 
-/// Parse a parent field.toml (the suite-level template at the eval directory root).
+/// Parse a parent field file (the suite-level template at the eval directory root).
 /// Returns None if the file does not exist.
 pub fn parse_parent_config(path: impl AsRef<Path>) -> Result<Option<ParentConfig>> {
     let path = path.as_ref();
@@ -58,7 +58,7 @@ pub fn parse_parent_config(path: impl AsRef<Path>) -> Result<Option<ParentConfig
     let content = fs::read_to_string(path)?;
     let raw: RawParentConfig = toml::from_str(&content).map_err(|e| {
         FieldParseError::InvalidField(format!(
-            "Failed to parse parent field.toml at {}: {}",
+            "Failed to parse parent field at {}: {}",
             path.display(),
             e
         ))
@@ -102,7 +102,7 @@ pub fn parse_parent_config(path: impl AsRef<Path>) -> Result<Option<ParentConfig
 
 /// Resolve the parent config for a field path:
 /// 1. If `explicit_parent` is provided, use it.
-/// 2. Otherwise, auto-detect from `../field.toml` relative to the field file.
+/// 2. Otherwise, auto-detect from a `.field` file (or `field.toml`) one directory up.
 pub fn resolve_parent_config(
     field_path: impl AsRef<Path>,
     explicit_parent: Option<impl AsRef<Path>>,
@@ -111,7 +111,7 @@ pub fn resolve_parent_config(
         return parse_parent_config(p);
     }
 
-    // Auto-detect: look for field.toml one directory up
+    // Auto-detect: look for a .field or field.toml one directory up
     let field_path = field_path.as_ref();
     let abs = if field_path.is_absolute() {
         field_path.to_path_buf()
@@ -120,9 +120,18 @@ pub fn resolve_parent_config(
     };
 
     if let Some(parent_dir) = abs.parent().and_then(|d| d.parent()) {
-        let candidate = parent_dir.join("field.toml");
-        if candidate.exists() {
-            return parse_parent_config(candidate);
+        // Prefer parent.field (canonical name), then field.field, then field.toml
+        let candidate_parent = parent_dir.join("parent.field");
+        if candidate_parent.exists() {
+            return parse_parent_config(candidate_parent);
+        }
+        let candidate_field = parent_dir.join("field.field");
+        if candidate_field.exists() {
+            return parse_parent_config(candidate_field);
+        }
+        let candidate_toml = parent_dir.join("field.toml");
+        if candidate_toml.exists() {
+            return parse_parent_config(candidate_toml);
         }
     }
 
