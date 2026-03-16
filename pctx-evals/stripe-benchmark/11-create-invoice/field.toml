@@ -13,7 +13,8 @@ Task: Create an invoice for Charlotte Souza (charlotte.souza@synapseio.com) for 
 
 [environment]
 root = "./workspace"
-code_mode_enabled = "inherit"
+dockerfile = "inherit"
+
 
 [boundary]
 network = "allow"
@@ -26,7 +27,7 @@ output_schema = """
   "required": ["invoice_id", "total", "line_items"],
   "properties": {
     "invoice_id": { "type": "string" },
-    "total":      { "type": "integer", "minimum": 1 },
+    "total":      { "type": "integer", "const": 750000 },
     "line_items": {
       "type": "array",
       "minItems": 2,
@@ -42,10 +43,3 @@ output_schema = """
   }
 }
 """
-
-[[verifier]]
-name = "correct-total"
-type = "json"
-schema = '{"properties": {"total": {"const": 750000}}}'
-trigger = "on_stop"
-description = "Invoice total must be 750000 cents ($7500: $5000 data migration + $2500 white glove)"

@@ -33,8 +33,10 @@ pub enum InheritOr<T> {
 }
 
 impl<'de, T: Deserialize<'de>> Deserialize<'de> for InheritOr<T> {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
-        use serde::de::{self, MapAccess, Visitor, value::MapAccessDeserializer};
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        use serde::de::{self, value::MapAccessDeserializer, MapAccess, Visitor};
         use std::fmt;
         use std::marker::PhantomData;
 
@@ -59,7 +61,10 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for InheritOr<T> {
                 self.visit_str(&v)
             }
 
-            fn visit_map<A: MapAccess<'de>>(self, map: A) -> std::result::Result<Self::Value, A::Error> {
+            fn visit_map<A: MapAccess<'de>>(
+                self,
+                map: A,
+            ) -> std::result::Result<Self::Value, A::Error> {
                 T::deserialize(MapAccessDeserializer::new(map)).map(InheritOr::Value)
             }
 
@@ -106,6 +111,8 @@ pub struct RawParentConfig {
     pub tool: Vec<RawTool>,
     #[serde(default)]
     pub boundary: Option<RawBoundary>,
+    #[serde(default)]
+    pub environment: Option<RawEnvironment>,
 }
 
 /// Declaration of a template variable in [vars]

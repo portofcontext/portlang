@@ -34,6 +34,8 @@ pub struct ParentConfig {
     pub tools: Vec<RawTool>,
     pub boundary: Option<RawBoundary>,
     pub code_mode_enabled: Option<bool>,
+    /// Resolved absolute path to the parent's dockerfile, if any
+    pub dockerfile: Option<String>,
 }
 
 /// Parse a parent field.toml (the suite-level template at the eval directory root).
@@ -76,11 +78,25 @@ pub fn parse_parent_config(path: impl AsRef<Path>) -> Result<Option<ParentConfig
         })
         .collect();
 
+    // Resolve the parent's dockerfile path relative to the parent dir
+    let dockerfile = raw
+        .environment
+        .as_ref()
+        .and_then(|e| e.dockerfile.as_ref())
+        .map(|df| {
+            if let Some(ref dir) = parent_dir {
+                normalize_path(&dir.join(df)).to_string_lossy().into_owned()
+            } else {
+                df.clone()
+            }
+        });
+
     Ok(Some(ParentConfig {
         model: raw.model,
         tools,
         boundary: raw.boundary,
         code_mode_enabled: raw.code_mode.map(|cm| cm.enabled),
+        dockerfile,
     }))
 }
 
@@ -234,10 +250,16 @@ fn convert_raw_field(
                 .or_else(|| parent.and_then(|p| p.code_mode_enabled)),
         };
 
+        let dockerfile = match raw_env.dockerfile.as_deref() {
+            Some("inherit") => parent.and_then(|p| p.dockerfile.clone()),
+            Some(path) => Some(resolve_path(path).to_string_lossy().into_owned()),
+            None => None,
+        };
+
         Environment {
             root: resolved.to_string_lossy().to_string(),
             packages: raw_env.packages,
-            dockerfile: raw_env.dockerfile,
+            dockerfile,
             image: raw_env.image,
             code_mode_enabled,
         }
@@ -1238,6 +1260,7 @@ root = "./workspace"
             tools: vec![],
             boundary: None,
             code_mode_enabled: None,
+            dockerfile: None,
         };
 
         let toml = r#"
@@ -1282,6 +1305,7 @@ root = "./workspace"
             }],
             boundary: None,
             code_mode_enabled: None,
+            dockerfile: None,
         };
 
         let toml = r#"
@@ -1345,6 +1369,7 @@ root = "./workspace"
             tools: vec![],
             boundary: None,
             code_mode_enabled: Some(true),
+            dockerfile: None,
         };
 
         let toml = r#"

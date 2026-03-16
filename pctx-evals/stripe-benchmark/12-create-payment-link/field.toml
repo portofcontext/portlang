@@ -13,7 +13,8 @@ Task: Create a payment link for the Team Training Workshop product that charges 
 
 [environment]
 root = "./workspace"
-code_mode_enabled = "inherit"
+dockerfile = "inherit"
+
 
 [boundary]
 network = "allow"
@@ -25,16 +26,9 @@ output_schema = """
   "type": "object",
   "required": ["url", "product", "amount"],
   "properties": {
-    "url":     { "type": "string", "pattern": "^https://" },
-    "product": { "type": "string" },
-    "amount":  { "type": "integer", "minimum": 1 }
+    "url":     { "type": "string", "pattern": "buy.stripe.com/test_" },
+    "product": { "type": "string", "const": "Team Training Workshop" },
+    "amount":  { "type": "integer", "const": 150000 }
   }
 }
 """
-
-[[verifier]]
-name = "correct-payment-link"
-type = "json"
-schema = '{"properties": {"url": {"pattern": "buy\\.stripe\\.com/test_"}, "product": {"const": "Team Training Workshop"}, "amount": {"const": 150000}}}'
-trigger = "on_stop"
-description = "URL must be a Stripe test payment link, product must be Team Training Workshop, amount must be 150000 cents ($1500)"

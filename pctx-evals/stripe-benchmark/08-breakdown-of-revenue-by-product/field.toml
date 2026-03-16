@@ -13,7 +13,8 @@ Task: Find the active subscription in this account. Return the subscription ID a
 
 [environment]
 root = "./workspace"
-code_mode_enabled = "inherit"
+dockerfile = "inherit"
+
 
 [boundary]
 network = "allow"
@@ -25,15 +26,8 @@ output_schema = """
   "type": "object",
   "required": ["subscription_id", "customer_id"],
   "properties": {
-    "subscription_id": { "type": "string" },
-    "customer_id":     { "type": "string" }
+    "subscription_id": { "type": "string", "const": "sub_1T94jeICegwS4jvErlauDPFM" },
+    "customer_id":     { "type": "string", "const": "cus_U7JMREj0hqqV1U" }
   }
 }
 """
-
-[[verifier]]
-name = "correct-subscription"
-type = "json"
-schema = '{"properties": {"subscription_id": {"const": "sub_1T94jeICegwS4jvErlauDPFM"}, "customer_id": {"const": "cus_U7JMREj0hqqV1U"}}}'
-trigger = "on_stop"
-description = "Must return the correct subscription and customer IDs"

@@ -33,7 +33,7 @@ re_observation = ["cmd", ...]   # commands that run before each step to refresh 
 [environment]                   # optional, all fields have defaults
 root = "./workspace"            # working directory (maps to /workspace in container)
 packages = ["nodejs", "npm"]    # apt packages; uv installed via pip if listed
-dockerfile = "./Dockerfile"     # custom Dockerfile (overrides anything in ^)
+dockerfile = "./Dockerfile"     # custom Dockerfile (overrides anything in ^); use "inherit" to pull from parent
 image = "custom:image"          # pre-built image (overrides anything in ^ on ^^)
 
 [boundary]                      # optional, or boundary = "inherit" to pull from parent

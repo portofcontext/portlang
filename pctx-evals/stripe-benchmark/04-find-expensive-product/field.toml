@@ -13,7 +13,8 @@ Task: What's the most expensive product in my Stripe account? Return the product
 
 [environment]
 root = "./workspace"
-code_mode_enabled = "inherit"
+dockerfile = "inherit"
+
 
 [boundary]
 network = "allow"
@@ -25,16 +26,9 @@ output_schema = """
   "type": "object",
   "required": ["name", "amount", "currency"],
   "properties": {
-    "name":     { "type": "string" },
+    "name":     { "type": "string", "const": "Team Training Weekend" },
     "amount":   { "type": "integer" },
     "currency": { "type": "string" }
   }
 }
 """
-
-[[verifier]]
-name = "correct-product"
-type = "json"
-schema = '{"properties": {"name": {"const": "Team Training Weekend"}}}'
-trigger = "on_stop"
-description = "Most expensive product must be Team Training Weekend"

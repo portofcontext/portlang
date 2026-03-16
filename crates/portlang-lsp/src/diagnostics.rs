@@ -109,8 +109,8 @@ fn validate_raw(raw: &RawField) -> Vec<Diagnostic> {
             )));
         }
         if let Some(trigger) = &v.trigger {
-            let is_valid_trigger = matches!(trigger.as_str(), "on_stop" | "always")
-                || trigger.starts_with("on_tool:");
+            let is_valid_trigger =
+                matches!(trigger.as_str(), "on_stop" | "always") || trigger.starts_with("on_tool:");
             if !is_valid_trigger {
                 diags.push(doc_diagnostic(&format!(
                     "Verifier '{}' has unknown trigger '{}'. Valid: on_stop, always, on_tool:<tool_name>",

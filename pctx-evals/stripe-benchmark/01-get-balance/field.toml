@@ -13,7 +13,7 @@ Task: Get the account balance. Return the available and pending amounts as struc
 
 [environment]
 root = "./workspace"
-code_mode_enabled = true
+dockerfile = "inherit"
 
 [boundary]
 network = "allow"

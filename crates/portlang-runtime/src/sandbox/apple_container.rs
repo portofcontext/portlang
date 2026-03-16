@@ -28,8 +28,6 @@ impl AppleContainerSandbox {
         }
 
         if let Some(ref dockerfile_path) = environment.dockerfile {
-            // Build from custom Dockerfile
-            tracing::info!("Building image from Dockerfile: {}", dockerfile_path);
             return Self::build_from_dockerfile(dockerfile_path, container_name).await;
         }
 
@@ -44,10 +42,33 @@ impl AppleContainerSandbox {
         Ok("debian:bookworm-slim".to_string())
     }
 
-    /// Build container image from custom Dockerfile
-    async fn build_from_dockerfile(dockerfile_path: &str, tag: &str) -> Result<String> {
+    /// Build container image from custom Dockerfile.
+    /// Uses a stable tag derived from Dockerfile content so the image is only
+    /// built once per unique Dockerfile across all runs.
+    async fn build_from_dockerfile(dockerfile_path: &str, _tag: &str) -> Result<String> {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let content = std::fs::read(dockerfile_path).map_err(|e| {
+            SandboxError::InitError(format!(
+                "Failed to read Dockerfile '{}': {}",
+                dockerfile_path, e
+            ))
+        })?;
+
+        let mut hasher = DefaultHasher::new();
+        content.hash(&mut hasher);
+        let image_tag = format!("portlang-dockerfile-{:016x}", hasher.finish());
+
+        // Skip the build if we've already built this exact Dockerfile
+        let marker = std::env::temp_dir().join(format!("{}.built", image_tag));
+        if marker.exists() {
+            tracing::info!("Reusing cached image: {}", image_tag);
+            return Ok(image_tag);
+        }
+
         let output = Command::new("container")
-            .args(["build", "-f", dockerfile_path, "-t", tag, "."])
+            .args(["build", "-f", dockerfile_path, "-t", &image_tag, "."])
             .output()
             .map_err(|e| {
                 SandboxError::InitError(format!("Failed to build from Dockerfile: {}", e))
@@ -60,7 +81,8 @@ impl AppleContainerSandbox {
             )));
         }
 
-        Ok(tag.to_string())
+        let _ = std::fs::write(&marker, "");
+        Ok(image_tag)
     }
 
     /// Build container image with additional packages

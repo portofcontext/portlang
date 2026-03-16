@@ -13,7 +13,8 @@ Task: Count the number of disputes in my Stripe account and return the count and
 
 [environment]
 root = "./workspace"
-code_mode_enabled = "inherit"
+dockerfile = "inherit"
+
 
 [boundary]
 network = "allow"

@@ -13,7 +13,8 @@ Task: List exactly 3 customers from this Stripe account. Return their customer I
 
 [environment]
 root = "./workspace"
-code_mode_enabled = "inherit"
+dockerfile = "inherit"
+
 
 [boundary]
 network = "allow"

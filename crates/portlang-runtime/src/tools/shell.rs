@@ -32,7 +32,7 @@ impl ShellCommandHandler {
     }
 
     fn render_command(&self, input: &Value) -> Result<String> {
-        // Simple template substitution: replace {key} with input["key"]
+        // Step 1: substitute {key} placeholders from tool input
         let mut cmd = self.command_template.clone();
 
         if let Value::Object(map) = input {
@@ -42,13 +42,31 @@ impl ShellCommandHandler {
                     Value::String(s) => s.clone(),
                     _ => value.to_string(),
                 };
-                // Basic shell escaping - wrap in single quotes and escape single quotes
-                let escaped = value_str.replace('\'', "'\"'\"'");
-                cmd = cmd.replace(&placeholder, &format!("'{}'", escaped));
+                cmd = cmd.replace(&placeholder, &value_str);
             }
         }
 
-        Ok(cmd)
+        // Step 2: expand ${ENV_VAR} references from the host environment
+        let mut result = String::new();
+        let mut chars = cmd.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '$' && chars.peek() == Some(&'{') {
+                chars.next(); // consume '{'
+                let mut var_name = String::new();
+                for nc in chars.by_ref() {
+                    if nc == '}' {
+                        break;
+                    }
+                    var_name.push(nc);
+                }
+                let val = std::env::var(&var_name).unwrap_or_default();
+                result.push_str(&val);
+            } else {
+                result.push(c);
+            }
+        }
+
+        Ok(result)
     }
 }
 

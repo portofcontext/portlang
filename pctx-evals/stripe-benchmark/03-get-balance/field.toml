@@ -13,7 +13,8 @@ Task: What is the current balance on this Stripe account? Include both available
 
 [environment]
 root = "./workspace"
-code_mode_enabled = "inherit"
+dockerfile = "inherit"
+
 
 [boundary]
 network = "allow"
@@ -25,16 +26,9 @@ output_schema = """
   "type": "object",
   "required": ["available_amount", "pending_amount", "currency"],
   "properties": {
-    "available_amount": { "type": "integer" },
-    "pending_amount":   { "type": "integer" },
+    "available_amount": { "type": "integer", "const": 0 },
+    "pending_amount":   { "type": "integer", "const": 0 },
     "currency":         { "type": "string" }
   }
 }
 """
-
-[[verifier]]
-name = "balance-is-zero"
-type = "json"
-schema = '{"properties": {"available_amount": {"const": 0}, "pending_amount": {"const": 0}}}'
-trigger = "on_stop"
-description = "Test account balance must be 0 available and 0 pending"

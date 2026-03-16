@@ -13,7 +13,8 @@ Task: Find the Stripe customer ID for the person who works on CI/CD pipeline int
 
 [environment]
 root = "./workspace"
-code_mode_enabled = "inherit"
+dockerfile = "inherit"
+
 
 [boundary]
 network = "allow"
@@ -25,14 +26,7 @@ output_schema = """
   "type": "object",
   "required": ["customer_id"],
   "properties": {
-    "customer_id": { "type": "string" }
+    "customer_id": { "type": "string", "const": "cus_U7JPAF3VYkh5H7" }
   }
 }
 """
-
-[[verifier]]
-name = "correct-customer"
-type = "json"
-schema = '{"properties": {"customer_id": {"const": "cus_U7JPAF3VYkh5H7"}}}'
-trigger = "on_stop"
-description = "Must return the correct customer ID cus_U7JPAF3VYkh5H7"
