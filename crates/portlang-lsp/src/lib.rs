@@ -25,10 +25,7 @@ impl Backend {
             .lock()
             .await
             .insert(uri.clone(), text.clone());
-        let filename = uri
-            .path_segments()
-            .and_then(|s| s.last())
-            .unwrap_or("");
+        let filename = uri.path_segments().and_then(|s| s.last()).unwrap_or("");
         let diags = diagnostics::diagnostics_for(&text, filename);
         self.client.publish_diagnostics(uri, diags, None).await;
     }
