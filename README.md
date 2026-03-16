@@ -114,7 +114,7 @@ Key concepts: `[vars]` declares `{{ placeholders }}` resolved at runtime via `--
 
 | Primitive | Purpose |
 |-----------|---------|
-| **Field** | Self-contained unit of work — model, tools, goal, constraints, and verifiers in one file |
+| **Field** | Self-contained unit of work — model, tools, goal, constraints, and verifiers in one file. Named after the physics concept: a region of space with properties defined at every point. The agent moves through the field; the field determines what's possible. |
 | **Vars** | Template variables declared in `[vars]`, interpolated via `{{ name }}`, supplied at runtime with `--var` |
 | **Boundary** | Hard limits enforced by sandbox — write paths, network policy, step/cost/token caps |
 | **Verifier** | Success criteria that run on stop or on each tool call; failure feedback enters the context window |

@@ -1,0 +1,53 @@
+{
+  "name": "portlang",
+  "displayName": "portlang",
+  "description": "Language support for .field files",
+  "version": "0.1.0",
+  "publisher": "portofcontext",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/portofcontext/portlang"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Programming Languages"],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "field",
+        "aliases": ["Field", "portlang field"],
+        "extensions": [".field"],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/field-light.svg",
+          "dark": "./icons/field-dark.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "field",
+        "scopeName": "source.field",
+        "path": "./syntaxes/field.tmLanguage.json"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.7.0"
+  }
+}

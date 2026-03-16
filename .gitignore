@@ -9,3 +9,7 @@ skills-lock.json
 __pycache__
 
 .DS_STORE
+
+node_modules/
+
+# editors/vscode/out

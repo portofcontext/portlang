@@ -1,0 +1,112 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Field",
+  "scopeName": "source.field",
+  "fileTypes": ["field"],
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#table-array-header" },
+    { "include": "#table-header" },
+    { "include": "#key-value" }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.number-sign.field",
+      "match": "#.*$"
+    },
+    "table-array-header": {
+      "name": "entity.name.section.field",
+      "match": "^\\s*(\\[\\[[^\\]]+\\]\\])\\s*$",
+      "captures": {
+        "1": { "name": "entity.name.section.field" }
+      }
+    },
+    "table-header": {
+      "name": "entity.name.section.field",
+      "match": "^\\s*(\\[[^\\[\\]]+\\])\\s*$",
+      "captures": {
+        "1": { "name": "entity.name.section.field" }
+      }
+    },
+    "key-value": {
+      "patterns": [
+        {
+          "match": "^\\s*([A-Za-z_][A-Za-z0-9_\\-]*)\\s*(=)",
+          "captures": {
+            "1": { "name": "variable.other.key.field" },
+            "2": { "name": "keyword.operator.assignment.field" }
+          }
+        },
+        { "include": "#value" }
+      ]
+    },
+    "value": {
+      "patterns": [
+        { "include": "#string-triple" },
+        { "include": "#string-double" },
+        { "include": "#string-single" },
+        { "include": "#boolean" },
+        { "include": "#number" },
+        { "include": "#array" },
+        { "include": "#inline-table" }
+      ]
+    },
+    "string-triple": {
+      "name": "string.quoted.triple.field",
+      "begin": "\"\"\"",
+      "end": "\"\"\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.field",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "string-double": {
+      "name": "string.quoted.double.field",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.field",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "string-single": {
+      "name": "string.quoted.single.field",
+      "begin": "'",
+      "end": "'",
+      "patterns": [
+        {
+          "name": "constant.character.escape.field",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "boolean": {
+      "name": "constant.language.boolean.field",
+      "match": "\\b(true|false)\\b"
+    },
+    "number": {
+      "name": "constant.numeric.field",
+      "match": "(?<![A-Za-z_])[+-]?(?:0x[0-9A-Fa-f_]+|0o[0-7_]+|0b[01_]+|(?:[0-9][0-9_]*(?:\\.[0-9][0-9_]*)?(?:[eE][+-]?[0-9][0-9_]*)?|\\.[0-9][0-9_]*(?:[eE][+-]?[0-9][0-9_]*)?)|(inf|nan))(?![A-Za-z_])"
+    },
+    "array": {
+      "begin": "\\[",
+      "end": "\\]",
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#value" }
+      ]
+    },
+    "inline-table": {
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [
+        { "include": "#key-value" },
+        { "include": "#value" }
+      ]
+    }
+  }
+}

@@ -26,11 +26,50 @@ impl Serialize for InheritKeyword {
 }
 
 /// Either the string "inherit" or a concrete value T
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone, Serialize)]
 pub enum InheritOr<T> {
     Inherit(InheritKeyword),
     Value(T),
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for InheritOr<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+        use serde::de::{self, MapAccess, Visitor, value::MapAccessDeserializer};
+        use std::fmt;
+        use std::marker::PhantomData;
+
+        struct InheritOrVisitor<T>(PhantomData<T>);
+
+        impl<'de, T: Deserialize<'de>> Visitor<'de> for InheritOrVisitor<T> {
+            type Value = InheritOr<T>;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, r#""inherit" or a configuration value"#)
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> std::result::Result<Self::Value, E> {
+                if v == "inherit" {
+                    Ok(InheritOr::Inherit(InheritKeyword))
+                } else {
+                    Err(E::custom(format!("expected \"inherit\", got {:?}", v)))
+                }
+            }
+
+            fn visit_string<E: de::Error>(self, v: String) -> std::result::Result<Self::Value, E> {
+                self.visit_str(&v)
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, map: A) -> std::result::Result<Self::Value, A::Error> {
+                T::deserialize(MapAccessDeserializer::new(map)).map(InheritOr::Value)
+            }
+
+            fn visit_bool<E: de::Error>(self, v: bool) -> std::result::Result<Self::Value, E> {
+                T::deserialize(de::value::BoolDeserializer::new(v)).map(InheritOr::Value)
+            }
+        }
+
+        deserializer.deserialize_any(InheritOrVisitor(PhantomData))
+    }
 }
 
 impl<T> InheritOr<T> {

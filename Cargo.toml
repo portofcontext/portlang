@@ -12,6 +12,7 @@ members = [
     "crates/portlang-provider-openrouter",
     "crates/portlang-provider-openai",
     "crates/portlang-cli",
+    "crates/portlang-lsp",
 ]
 
 [workspace.package]
