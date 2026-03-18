@@ -88,15 +88,16 @@ impl AppleContainerSandbox {
     /// Build container image with additional packages
     async fn build_with_packages(packages: &[String], tag: &str) -> Result<String> {
         let has_uv = packages.iter().any(|p| p == "uv");
+        let has_claude_code = packages.iter().any(|p| p == "claude-code");
 
-        // uv is installed via its standalone installer, not apt.
-        // curl and ca-certificates are needed for the installer and are removed after.
+        // uv and claude-code are installed via their own standalone installers, not apt.
+        // curl and ca-certificates are needed for both installers.
         let mut apt_packages: Vec<&str> = packages
             .iter()
-            .filter(|p| p.as_str() != "uv")
+            .filter(|p| p.as_str() != "uv" && p.as_str() != "claude-code")
             .map(|s| s.as_str())
             .collect();
-        if has_uv {
+        if has_uv || has_claude_code {
             if !apt_packages.contains(&"curl") {
                 apt_packages.push("curl");
             }
@@ -120,6 +121,14 @@ impl AppleContainerSandbox {
             dockerfile_lines.push(
                 "RUN curl -LsSf https://astral.sh/uv/install.sh | env HOME=/root sh".to_string(),
             );
+            dockerfile_lines.push(r#"ENV PATH="/root/.local/bin:$PATH""#.to_string());
+        }
+
+        // Install Claude Code CLI via the official installer.
+        // The installer places the binary at ~/.local/bin/claude, so we add
+        // /root/.local/bin to PATH for subsequent RUN steps and container exec calls.
+        if has_claude_code {
+            dockerfile_lines.push("RUN curl -fsSL https://claude.ai/install.sh | bash".to_string());
             dockerfile_lines.push(r#"ENV PATH="/root/.local/bin:$PATH""#.to_string());
         }
 

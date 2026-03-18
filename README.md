@@ -102,6 +102,33 @@ Treat `.field` files as code. Review tool definitions and boundary policies befo
 
 ---
 
+## Claude Code Runner
+
+portlang can use [Claude Code](https://claude.ai/code) as its agent loop instead of the native loop. This gives the agent Edit (diff-based), Glob, Grep, LSP, WebSearch, and WebFetch — the full Claude Code toolset — inside of portlang.
+
+```bash
+portlang run --runner claude-code field.field
+```
+
+**Auth:** if you already use Claude Code, no setup is needed — portlang reads credentials from `~/.claude/.credentials.json` automatically. Otherwise, run `claude setup-token` to generate a long-lived OAuth token, or set `ANTHROPIC_API_KEY` to use the API directly.
+
+**Field config mapping:**
+
+| Field config | Behavior |
+|---|---|
+| `model.name` | Passed to Claude Code |
+| `[[tool]]` (MCP) | Passed directly via `--mcp-config` |
+| `[[tool]]` (shell/python) | Wrapped as MCP stdio servers, run in container |
+| `boundary.allow_write` | Enforced via PostToolUse hook on Write/Edit |
+| `boundary.max_steps/cost/tokens` | Monitored from stream; process killed on breach |
+| `[[verifier]]` (shell, on_stop) | Run by portlang after agent exits |
+| `[[verifier]]` (shell, always/on_tool) | Run as Claude Code PostToolUse hooks |
+| `boundary.network` | Always enabled (Claude Code requires API access) |
+
+**Limitations vs native runner:** `ToolCall` verifiers and boundary context tracing are not supported
+
+---
+
 ## Examples & Reference
 
 | | |

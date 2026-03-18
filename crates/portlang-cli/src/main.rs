@@ -135,6 +135,10 @@ enum Commands {
         /// Input data to stage into the workspace: path to a file or inline JSON string
         #[arg(long = "input", value_name = "FILE_OR_JSON")]
         input: Option<String>,
+
+        /// Agent loop runner: "native" (default) or "claude-code"
+        #[arg(long = "runner", default_value = "native")]
+        runner: String,
     },
     /// Check a field for errors
     Check {
@@ -177,6 +181,10 @@ enum Commands {
         /// Input data to stage into the workspace: path to a file or inline JSON string
         #[arg(long = "input", value_name = "FILE_OR_JSON")]
         input: Option<String>,
+
+        /// Agent loop runner: "native" (default) or "claude-code"
+        #[arg(long = "runner", default_value = "native")]
+        runner: String,
     },
     /// Run all fields in a directory and report aggregate accuracy
     Eval {
@@ -194,6 +202,10 @@ enum Commands {
         /// Generate HTML dashboard instead of CLI output
         #[arg(long)]
         html: bool,
+
+        /// Agent loop runner: "native" (default) or "claude-code"
+        #[arg(long = "runner", default_value = "native")]
+        runner: String,
 
         /// Template variable as KEY=VALUE (repeatable)
         #[arg(long = "var", value_name = "KEY=VALUE")]
@@ -476,8 +488,9 @@ async fn main() {
             var,
             vars,
             input,
+            runner,
         } => match build_runtime_context(var, vars, input) {
-            Ok(ctx) => commands::run::run_command(field_path, parent_field, ctx).await,
+            Ok(ctx) => commands::run::run_command(field_path, parent_field, ctx, runner).await,
             Err(e) => Err(e),
         },
         Commands::Check {
@@ -496,9 +509,11 @@ async fn main() {
             var,
             vars,
             input,
+            runner,
         } => match build_runtime_context(var, vars, input) {
             Ok(ctx) => {
-                commands::converge::converge_command(field_path, runs, parent_field, ctx).await
+                commands::converge::converge_command(field_path, runs, parent_field, ctx, runner)
+                    .await
             }
             Err(e) => Err(e),
         },
@@ -516,6 +531,7 @@ async fn main() {
             parent_field,
             resume,
             html,
+            runner,
             var,
             vars,
         } => {
@@ -524,7 +540,8 @@ async fn main() {
             } else {
                 match build_runtime_context(var, vars, None) {
                     Ok(ctx) => {
-                        commands::eval::eval_command(directory, parent_field, resume, ctx).await
+                        commands::eval::eval_command(directory, parent_field, resume, ctx, runner)
+                            .await
                     }
                     Err(e) => Err(e),
                 }

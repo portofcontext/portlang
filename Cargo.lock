@@ -4794,6 +4794,7 @@ dependencies = [
  "portlang-core",
  "portlang-provider-anthropic",
  "portlang-provider-openrouter",
+ "portlang-runner-claudecode",
  "portlang-runtime",
  "portlang-trajectory",
  "reqwest 0.13.2",
@@ -4925,6 +4926,21 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "portlang-runner-claudecode"
+version = "0.1.8"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "portlang-core",
+ "portlang-runtime",
+ "serde",
+ "serde_json",
  "tokio",
  "tracing",
 ]

@@ -4,6 +4,7 @@ use portlang_config::{apply_runtime_context, parse_field_with_parent, parse_pare
 use portlang_core::RuntimeContext;
 use portlang_provider_anthropic::AnthropicProvider;
 use portlang_provider_openrouter::OpenRouterProvider;
+use portlang_runner_claudecode::run_field_with_claude_code;
 use portlang_runtime::{run_field, validate_field_config, ModelProvider};
 use portlang_trajectory::{EvalRun, EvalRunStore, FilesystemStore, TrajectoryStore};
 use std::collections::HashSet;
@@ -25,6 +26,7 @@ pub async fn eval_command(
     parent_field: Option<PathBuf>,
     resume_id: Option<String>,
     ctx: RuntimeContext,
+    runner: String,
 ) -> Result<()> {
     // Load parent config: explicit -p flag takes priority, then look for a .field or field.toml at the directory root
     let parent = if let Some(ref explicit) = parent_field {
@@ -179,21 +181,25 @@ pub async fn eval_command(
 
         run_idx += 1;
 
-        let provider: Box<dyn ModelProvider> = if field.model.name.contains('/') {
-            let mut p = OpenRouterProvider::from_env(&field.model.name)?;
-            if let Some(temp) = field.model.temperature {
-                p = p.with_temperature(temp);
+        let run_result = match runner.as_str() {
+            "claude-code" => run_field_with_claude_code(&field, &eval_ctx).await,
+            _ => {
+                let provider: Box<dyn ModelProvider> = if field.model.name.contains('/') {
+                    let mut p = OpenRouterProvider::from_env(&field.model.name)?;
+                    if let Some(temp) = field.model.temperature {
+                        p = p.with_temperature(temp);
+                    }
+                    Box::new(p)
+                } else {
+                    let mut p = AnthropicProvider::from_env(&field.model.name)?;
+                    if let Some(temp) = field.model.temperature {
+                        p = p.with_temperature(temp);
+                    }
+                    Box::new(p)
+                };
+                run_field(&field, provider.as_ref(), &eval_ctx).await
             }
-            Box::new(p)
-        } else {
-            let mut p = AnthropicProvider::from_env(&field.model.name)?;
-            if let Some(temp) = field.model.temperature {
-                p = p.with_temperature(temp);
-            }
-            Box::new(p)
         };
-
-        let run_result = run_field(&field, provider.as_ref(), &eval_ctx).await;
 
         match run_result {
             Ok(trajectory) => {

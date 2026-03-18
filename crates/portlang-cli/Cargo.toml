@@ -21,6 +21,7 @@ portlang-trajectory = { workspace = true }
 portlang-adapt = { workspace = true }
 portlang-provider-anthropic = { workspace = true }
 portlang-provider-openrouter = { workspace = true }
+portlang-runner-claudecode = { workspace = true }
 portlang-check = { workspace = true }
 clap = { workspace = true }
 clap-markdown = "0.1"

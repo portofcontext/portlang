@@ -129,6 +129,9 @@ Run a field
 * `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable, e.g. --var customer_id=123)
 * `--vars <FILE>` — JSON file containing template variables (key→value map)
 * `--input <FILE_OR_JSON>` — Input data to stage into the workspace: path to a file or inline JSON string
+* `--runner <RUNNER>` — Agent loop runner: "native" (default) or "claude-code"
+
+  Default value: `native`
 
 
 
@@ -169,6 +172,9 @@ Run a field N times and measure convergence reliability
 * `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable)
 * `--vars <FILE>` — JSON file containing template variables (key→value map)
 * `--input <FILE_OR_JSON>` — Input data to stage into the workspace: path to a file or inline JSON string
+* `--runner <RUNNER>` — Agent loop runner: "native" (default) or "claude-code"
+
+  Default value: `native`
 
 
 
@@ -187,6 +193,9 @@ Run all fields in a directory and report aggregate accuracy
 * `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field to inherit from (defaults to <directory>/field.field if present)
 * `--resume <RESUME>` — Resume a previous eval run, skipping fields that already passed
 * `--html` — Generate HTML dashboard instead of CLI output
+* `--runner <RUNNER>` — Agent loop runner: "native" (default) or "claude-code"
+
+  Default value: `native`
 * `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable)
 * `--vars <FILE>` — JSON file containing template variables (key→value map)
 

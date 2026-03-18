@@ -11,6 +11,7 @@ members = [
     "crates/portlang-provider-anthropic",
     "crates/portlang-provider-openrouter",
     "crates/portlang-provider-openai",
+    "crates/portlang-runner-claudecode",
     "crates/portlang-cli",
     "crates/portlang-lsp",
 ]
@@ -59,6 +60,7 @@ portlang-pipeline = { path = "crates/portlang-pipeline" }
 portlang-provider-anthropic = { path = "crates/portlang-provider-anthropic" }
 portlang-provider-openrouter = { path = "crates/portlang-provider-openrouter" }
 portlang-provider-openai = { path = "crates/portlang-provider-openai" }
+portlang-runner-claudecode = { path = "crates/portlang-runner-claudecode" }
 
 # The profile that 'dist' will build with
 [profile.dist]
