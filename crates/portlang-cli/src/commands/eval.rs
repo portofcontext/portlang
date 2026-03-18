@@ -316,11 +316,11 @@ pub async fn eval_command(
     println!();
     println!("Eval ID:  {}", eval_id);
     println!("To view the eval results:");
-    println!("  portlang view eval {}", eval_id);
+    println!("  portlang eval view {}", eval_id);
     if failed_count > 0 {
         println!("To resume failed tasks:");
         println!(
-            "  portlang eval {} --resume {}",
+            "  portlang eval run {} --resume {}",
             directory.display(),
             eval_id
         );

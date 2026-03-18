@@ -120,6 +120,14 @@ enum Commands {
         /// Path to the field file (.field or .toml)
         field_path: PathBuf,
 
+        /// Validate field without running (parse, check template variables, show config)
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Run N times and report convergence reliability
+        #[arg(short = 'n', long, default_value = "1")]
+        runs: usize,
+
         /// Path to a parent field to inherit from (auto-detected from ../*.field if not set)
         #[arg(short = 'p', long)]
         parent_field: Option<PathBuf>,
@@ -140,145 +148,8 @@ enum Commands {
         #[arg(long = "runner", default_value = "native")]
         runner: String,
     },
-    /// Check a field for errors
-    Check {
-        /// Path to the field file (.field or .toml)
-        field_path: PathBuf,
-
-        /// Path to a parent field to inherit from (auto-detected from ../*.field if not set)
-        #[arg(short = 'p', long)]
-        parent_field: Option<PathBuf>,
-
-        /// Template variable as KEY=VALUE (repeatable)
-        #[arg(long = "var", value_name = "KEY=VALUE")]
-        var: Vec<String>,
-
-        /// JSON file containing template variables (key→value map)
-        #[arg(long = "vars", value_name = "FILE")]
-        vars: Option<PathBuf>,
-    },
-    /// Run a field N times and measure convergence reliability
-    Converge {
-        /// Path to the field file (.field or .toml)
-        field_path: PathBuf,
-
-        /// Number of runs to execute
-        #[arg(short = 'n', long, default_value = "10")]
-        runs: usize,
-
-        /// Path to a parent field to inherit from (auto-detected from ../*.field if not set)
-        #[arg(short = 'p', long)]
-        parent_field: Option<PathBuf>,
-
-        /// Template variable as KEY=VALUE (repeatable)
-        #[arg(long = "var", value_name = "KEY=VALUE")]
-        var: Vec<String>,
-
-        /// JSON file containing template variables (key→value map)
-        #[arg(long = "vars", value_name = "FILE")]
-        vars: Option<PathBuf>,
-
-        /// Input data to stage into the workspace: path to a file or inline JSON string
-        #[arg(long = "input", value_name = "FILE_OR_JSON")]
-        input: Option<String>,
-
-        /// Agent loop runner: "native" (default) or "claude-code"
-        #[arg(long = "runner", default_value = "native")]
-        runner: String,
-    },
-    /// Run all fields in a directory and report aggregate accuracy
-    Eval {
-        /// Directory containing .field files (searched recursively)
-        directory: PathBuf,
-
-        /// Path to a parent field to inherit from (defaults to <directory>/field.field if present)
-        #[arg(short = 'p', long)]
-        parent_field: Option<PathBuf>,
-
-        /// Resume a previous eval run, skipping fields that already passed
-        #[arg(long)]
-        resume: Option<String>,
-
-        /// Generate HTML dashboard instead of CLI output
-        #[arg(long)]
-        html: bool,
-
-        /// Agent loop runner: "native" (default) or "claude-code"
-        #[arg(long = "runner", default_value = "native")]
-        runner: String,
-
-        /// Template variable as KEY=VALUE (repeatable)
-        #[arg(long = "var", value_name = "KEY=VALUE")]
-        var: Vec<String>,
-
-        /// JSON file containing template variables (key→value map)
-        #[arg(long = "vars", value_name = "FILE")]
-        vars: Option<PathBuf>,
-    },
-    /// List trajectories and eval runs
-    List {
-        #[command(subcommand)]
-        subcommand: ListSubcommand,
-    },
-    /// Replay a trajectory step-by-step
-    Replay {
-        /// Trajectory ID (filename without .json extension)
-        trajectory_id: String,
-
-        /// Output format (text or json)
-        #[arg(short = 'f', long, default_value = "text")]
-        format: String,
-
-        /// Generate HTML viewer instead of CLI output
-        #[arg(long)]
-        html: bool,
-    },
-    /// Compare two trajectories
-    Diff {
-        /// First trajectory ID
-        trajectory_a: String,
-
-        /// Second trajectory ID
-        trajectory_b: String,
-
-        /// Output format (text or json)
-        #[arg(short = 'f', long, default_value = "text")]
-        format: String,
-
-        /// Generate HTML comparison view instead of CLI output
-        #[arg(long)]
-        html: bool,
-    },
-    /// Generate an adaptation report from existing trajectories
-    Report {
-        /// Field name to analyze
-        field_name: String,
-
-        /// Show only converged trajectories
-        #[arg(long)]
-        converged: bool,
-
-        /// Show only failed trajectories
-        #[arg(short = 'f', long)]
-        failed: bool,
-
-        /// Limit number of trajectories to analyze
-        #[arg(short = 'l', long)]
-        limit: Option<usize>,
-    },
-    /// View evals and trajectories as interactive HTML
-    View {
-        #[command(subcommand)]
-        subcommand: ViewSubcommand,
-    },
-    /// Print CLI reference documentation as Markdown
-    Docs,
-}
-
-#[derive(Subcommand)]
-enum ListSubcommand {
     /// List trajectories
-    Trajectories {
+    List {
         /// Field name to filter by (optional)
         field_name: Option<String>,
 
@@ -294,8 +165,49 @@ enum ListSubcommand {
         #[arg(short = 'l', long)]
         limit: Option<usize>,
     },
+    /// Run evals and inspect results
+    Eval {
+        #[command(subcommand)]
+        subcommand: EvalSubcommand,
+    },
+    /// View trajectories and field reports
+    View {
+        #[command(subcommand)]
+        subcommand: ViewSubcommand,
+    },
+    /// Print CLI reference documentation as Markdown
+    Docs,
+}
+
+#[derive(Subcommand)]
+enum EvalSubcommand {
+    /// Run all fields in a directory and report aggregate accuracy
+    Run {
+        /// Directory containing .field files (searched recursively)
+        directory: PathBuf,
+
+        /// Path to a parent field to inherit from (defaults to <directory>/field.field if present)
+        #[arg(short = 'p', long)]
+        parent_field: Option<PathBuf>,
+
+        /// Resume a previous eval run, skipping fields that already passed
+        #[arg(long)]
+        resume: Option<String>,
+
+        /// Agent loop runner: "native" (default) or "claude-code"
+        #[arg(long = "runner", default_value = "native")]
+        runner: String,
+
+        /// Template variable as KEY=VALUE (repeatable)
+        #[arg(long = "var", value_name = "KEY=VALUE")]
+        var: Vec<String>,
+
+        /// JSON file containing template variables (key→value map)
+        #[arg(long = "vars", value_name = "FILE")]
+        vars: Option<PathBuf>,
+    },
     /// List eval runs
-    Evals {
+    List {
         /// Filter by directory (substring match)
         dir: Option<String>,
 
@@ -303,21 +215,8 @@ enum ListSubcommand {
         #[arg(short = 'l', long)]
         limit: Option<usize>,
     },
-}
-
-#[derive(Subcommand)]
-enum ViewSubcommand {
-    /// View a single trajectory
-    Trajectory {
-        /// Trajectory ID (filename without .json extension)
-        trajectory_id: String,
-
-        /// Don't automatically open in browser
-        #[arg(long)]
-        no_open: bool,
-    },
-    /// View eval results dashboard
-    Eval {
+    /// View eval results dashboard as interactive HTML
+    View {
         /// Eval run ID or directory path
         id_or_dir: String,
 
@@ -325,7 +224,24 @@ enum ViewSubcommand {
         #[arg(long)]
         no_open: bool,
     },
-    /// View comparison of two trajectories
+}
+
+#[derive(Subcommand)]
+enum ViewSubcommand {
+    /// View a trajectory
+    Trajectory {
+        /// Trajectory ID (filename without .json extension)
+        trajectory_id: String,
+
+        /// Output format: "html" (default, opens browser) or "text" (interactive replay) or "json"
+        #[arg(short = 'f', long, default_value = "html")]
+        format: String,
+
+        /// Don't automatically open in browser (html format only)
+        #[arg(long)]
+        no_open: bool,
+    },
+    /// Compare two trajectories
     Diff {
         /// First trajectory ID
         trajectory_a: String,
@@ -333,7 +249,11 @@ enum ViewSubcommand {
         /// Second trajectory ID
         trajectory_b: String,
 
-        /// Don't automatically open in browser
+        /// Output format: "html" (default, opens browser) or "text" or "json"
+        #[arg(short = 'f', long, default_value = "html")]
+        format: String,
+
+        /// Don't automatically open in browser (html format only)
         #[arg(long)]
         no_open: bool,
     },
@@ -342,19 +262,23 @@ enum ViewSubcommand {
         /// Field name to analyze
         field_name: String,
 
+        /// Output format: "html" (default, opens browser) or "text"
+        #[arg(short = 'f', long, default_value = "html")]
+        format: String,
+
         /// Show only converged trajectories
         #[arg(long)]
         converged: bool,
 
         /// Show only failed trajectories
-        #[arg(short = 'f', long)]
+        #[arg(long)]
         failed: bool,
 
         /// Limit number of trajectories to analyze
         #[arg(short = 'l', long)]
         limit: Option<usize>,
 
-        /// Don't automatically open in browser
+        /// Don't automatically open in browser (html format only)
         #[arg(long)]
         no_open: bool,
     },
@@ -395,10 +319,8 @@ fn build_runtime_context(
     let input = match input_arg {
         None => None,
         Some(s) => {
-            // If it starts with '{' or '[', treat as inline JSON; otherwise treat as file path
             let trimmed = s.trim();
             if trimmed.starts_with('{') || trimmed.starts_with('[') {
-                // Validate it's parseable JSON before handing to runtime
                 serde_json::from_str::<serde_json::Value>(trimmed).map_err(|e| {
                     anyhow::anyhow!("--input value looks like JSON but is not valid: {}", e)
                 })?;
@@ -484,26 +406,7 @@ async fn main() {
         }
         Commands::Run {
             field_path,
-            parent_field,
-            var,
-            vars,
-            input,
-            runner,
-        } => match build_runtime_context(var, vars, input) {
-            Ok(ctx) => commands::run::run_command(field_path, parent_field, ctx, runner).await,
-            Err(e) => Err(e),
-        },
-        Commands::Check {
-            field_path,
-            parent_field,
-            var,
-            vars,
-        } => match build_runtime_context(var, vars, None) {
-            Ok(ctx) => commands::check::check_command(field_path, parent_field, ctx),
-            Err(e) => Err(e),
-        },
-        Commands::Converge {
-            field_path,
+            dry_run,
             runs,
             parent_field,
             var,
@@ -512,97 +415,65 @@ async fn main() {
             runner,
         } => match build_runtime_context(var, vars, input) {
             Ok(ctx) => {
-                commands::converge::converge_command(field_path, runs, parent_field, ctx, runner)
+                commands::run::run_command(field_path, parent_field, ctx, runner, dry_run, runs)
                     .await
             }
             Err(e) => Err(e),
         },
-        Commands::List { subcommand } => match subcommand {
-            ListSubcommand::Trajectories {
-                field_name,
-                converged,
-                failed,
-                limit,
-            } => commands::list::list_command(field_name, converged, failed, limit),
-            ListSubcommand::Evals { dir, limit } => commands::evals::evals_command(dir, limit),
-        },
-        Commands::Eval {
-            directory,
-            parent_field,
-            resume,
-            html,
-            runner,
-            var,
-            vars,
-        } => {
-            if html {
-                commands::view::view_eval(directory.to_string_lossy().to_string(), true)
-            } else {
-                match build_runtime_context(var, vars, None) {
-                    Ok(ctx) => {
-                        commands::eval::eval_command(directory, parent_field, resume, ctx, runner)
-                            .await
-                    }
-                    Err(e) => Err(e),
-                }
-            }
-        }
-        Commands::Replay {
-            trajectory_id,
-            format,
-            html,
-        } => {
-            if html {
-                commands::view::view_trajectory(trajectory_id, true)
-            } else {
-                commands::replay::replay_command(trajectory_id, format)
-            }
-        }
-        Commands::Diff {
-            trajectory_a,
-            trajectory_b,
-            format,
-            html,
-        } => {
-            if html {
-                commands::view::view_diff(trajectory_a, trajectory_b, true)
-            } else {
-                commands::diff::diff_command(trajectory_a, trajectory_b, format)
-            }
-        }
-        Commands::Report {
+        Commands::List {
             field_name,
             converged,
             failed,
             limit,
-        } => commands::report::report_command(field_name, converged, failed, limit),
+        } => commands::list::list_command(field_name, converged, failed, limit),
+        Commands::Eval { subcommand } => match subcommand {
+            EvalSubcommand::Run {
+                directory,
+                parent_field,
+                resume,
+                runner,
+                var,
+                vars,
+            } => match build_runtime_context(var, vars, None) {
+                Ok(ctx) => {
+                    commands::eval::eval_command(directory, parent_field, resume, ctx, runner).await
+                }
+                Err(e) => Err(e),
+            },
+            EvalSubcommand::List { dir, limit } => commands::evals::evals_command(dir, limit),
+            EvalSubcommand::View { id_or_dir, no_open } => {
+                commands::view::view_eval(id_or_dir, !no_open)
+            }
+        },
+        Commands::View { subcommand } => match subcommand {
+            ViewSubcommand::Trajectory {
+                trajectory_id,
+                format,
+                no_open,
+            } => commands::view::view_trajectory(trajectory_id, &format, !no_open),
+            ViewSubcommand::Diff {
+                trajectory_a,
+                trajectory_b,
+                format,
+                no_open,
+            } => commands::view::view_diff(trajectory_a, trajectory_b, &format, !no_open),
+            ViewSubcommand::Field {
+                field_name,
+                format,
+                converged,
+                failed,
+                limit,
+                no_open,
+            } => commands::view::view_field_report(
+                field_name, converged, failed, limit, &format, !no_open,
+            ),
+        },
         Commands::Docs => {
             let markdown = clap_markdown::help_markdown::<Cli>();
             std::fs::write("CLI.md", &markdown).expect("failed to write CLI.md");
             println!("CLI.md written.");
             return;
         }
-        Commands::View { subcommand } => match subcommand {
-            ViewSubcommand::Trajectory {
-                trajectory_id,
-                no_open,
-            } => commands::view::view_trajectory(trajectory_id, !no_open),
-            ViewSubcommand::Eval { id_or_dir, no_open } => {
-                commands::view::view_eval(id_or_dir, !no_open)
-            }
-            ViewSubcommand::Diff {
-                trajectory_a,
-                trajectory_b,
-                no_open,
-            } => commands::view::view_diff(trajectory_a, trajectory_b, !no_open),
-            ViewSubcommand::Field {
-                field_name,
-                converged,
-                failed,
-                limit,
-                no_open,
-            } => commands::view::view_field_report(field_name, converged, failed, limit, !no_open),
-        },
     };
 
     if let Err(e) = result {

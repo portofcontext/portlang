@@ -8,18 +8,13 @@ This document contains the help content for the `portlang` command-line program.
 * [`portlang new`↴](#portlang-new)
 * [`portlang init`↴](#portlang-init)
 * [`portlang run`↴](#portlang-run)
-* [`portlang check`↴](#portlang-check)
-* [`portlang converge`↴](#portlang-converge)
-* [`portlang eval`↴](#portlang-eval)
 * [`portlang list`↴](#portlang-list)
-* [`portlang list trajectories`↴](#portlang-list-trajectories)
-* [`portlang list evals`↴](#portlang-list-evals)
-* [`portlang replay`↴](#portlang-replay)
-* [`portlang diff`↴](#portlang-diff)
-* [`portlang report`↴](#portlang-report)
+* [`portlang eval`↴](#portlang-eval)
+* [`portlang eval run`↴](#portlang-eval-run)
+* [`portlang eval list`↴](#portlang-eval-list)
+* [`portlang eval view`↴](#portlang-eval-view)
 * [`portlang view`↴](#portlang-view)
 * [`portlang view trajectory`↴](#portlang-view-trajectory)
-* [`portlang view eval`↴](#portlang-view-eval)
 * [`portlang view diff`↴](#portlang-view-diff)
 * [`portlang view field`↴](#portlang-view-field)
 * [`portlang docs`↴](#portlang-docs)
@@ -35,14 +30,9 @@ portlang - agent runtime with structured tools and verifiers
 * `new` — Create a new .field file
 * `init` — Initialize and check portlang environment
 * `run` — Run a field
-* `check` — Check a field for errors
-* `converge` — Run a field N times and measure convergence reliability
-* `eval` — Run all fields in a directory and report aggregate accuracy
-* `list` — List trajectories and eval runs
-* `replay` — Replay a trajectory step-by-step
-* `diff` — Compare two trajectories
-* `report` — Generate an adaptation report from existing trajectories
-* `view` — View evals and trajectories as interactive HTML
+* `list` — List trajectories
+* `eval` — Run evals and inspect results
+* `view` — View trajectories and field reports
 * `docs` — Print CLI reference documentation as Markdown
 
 
@@ -125,6 +115,10 @@ Run a field
 
 ###### **Options:**
 
+* `--dry-run` — Validate field without running (parse, check template variables, show config)
+* `-n`, `--runs <RUNS>` — Run N times and report convergence reliability
+
+  Default value: `1`
 * `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field to inherit from (auto-detected from ../*.field if not set)
 * `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable, e.g. --var customer_id=123)
 * `--vars <FILE>` — JSON file containing template variables (key→value map)
@@ -135,90 +129,11 @@ Run a field
 
 
 
-## `portlang check`
-
-Check a field for errors
-
-**Usage:** `portlang check [OPTIONS] <FIELD_PATH>`
-
-###### **Arguments:**
-
-* `<FIELD_PATH>` — Path to the field file (.field or .toml)
-
-###### **Options:**
-
-* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field to inherit from (auto-detected from ../*.field if not set)
-* `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable)
-* `--vars <FILE>` — JSON file containing template variables (key→value map)
-
-
-
-## `portlang converge`
-
-Run a field N times and measure convergence reliability
-
-**Usage:** `portlang converge [OPTIONS] <FIELD_PATH>`
-
-###### **Arguments:**
-
-* `<FIELD_PATH>` — Path to the field file (.field or .toml)
-
-###### **Options:**
-
-* `-n`, `--runs <RUNS>` — Number of runs to execute
-
-  Default value: `10`
-* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field to inherit from (auto-detected from ../*.field if not set)
-* `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable)
-* `--vars <FILE>` — JSON file containing template variables (key→value map)
-* `--input <FILE_OR_JSON>` — Input data to stage into the workspace: path to a file or inline JSON string
-* `--runner <RUNNER>` — Agent loop runner: "native" (default) or "claude-code"
-
-  Default value: `native`
-
-
-
-## `portlang eval`
-
-Run all fields in a directory and report aggregate accuracy
-
-**Usage:** `portlang eval [OPTIONS] <DIRECTORY>`
-
-###### **Arguments:**
-
-* `<DIRECTORY>` — Directory containing .field files (searched recursively)
-
-###### **Options:**
-
-* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field to inherit from (defaults to <directory>/field.field if present)
-* `--resume <RESUME>` — Resume a previous eval run, skipping fields that already passed
-* `--html` — Generate HTML dashboard instead of CLI output
-* `--runner <RUNNER>` — Agent loop runner: "native" (default) or "claude-code"
-
-  Default value: `native`
-* `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable)
-* `--vars <FILE>` — JSON file containing template variables (key→value map)
-
-
-
 ## `portlang list`
-
-List trajectories and eval runs
-
-**Usage:** `portlang list <COMMAND>`
-
-###### **Subcommands:**
-
-* `trajectories` — List trajectories
-* `evals` — List eval runs
-
-
-
-## `portlang list trajectories`
 
 List trajectories
 
-**Usage:** `portlang list trajectories [OPTIONS] [FIELD_NAME]`
+**Usage:** `portlang list [OPTIONS] [FIELD_NAME]`
 
 ###### **Arguments:**
 
@@ -232,11 +147,47 @@ List trajectories
 
 
 
-## `portlang list evals`
+## `portlang eval`
+
+Run evals and inspect results
+
+**Usage:** `portlang eval <COMMAND>`
+
+###### **Subcommands:**
+
+* `run` — Run all fields in a directory and report aggregate accuracy
+* `list` — List eval runs
+* `view` — View eval results dashboard as interactive HTML
+
+
+
+## `portlang eval run`
+
+Run all fields in a directory and report aggregate accuracy
+
+**Usage:** `portlang eval run [OPTIONS] <DIRECTORY>`
+
+###### **Arguments:**
+
+* `<DIRECTORY>` — Directory containing .field files (searched recursively)
+
+###### **Options:**
+
+* `-p`, `--parent-field <PARENT_FIELD>` — Path to a parent field to inherit from (defaults to <directory>/field.field if present)
+* `--resume <RESUME>` — Resume a previous eval run, skipping fields that already passed
+* `--runner <RUNNER>` — Agent loop runner: "native" (default) or "claude-code"
+
+  Default value: `native`
+* `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable)
+* `--vars <FILE>` — JSON file containing template variables (key→value map)
+
+
+
+## `portlang eval list`
 
 List eval runs
 
-**Usage:** `portlang list evals [OPTIONS] [DIR]`
+**Usage:** `portlang eval list [OPTIONS] [DIR]`
 
 ###### **Arguments:**
 
@@ -248,99 +199,11 @@ List eval runs
 
 
 
-## `portlang replay`
+## `portlang eval view`
 
-Replay a trajectory step-by-step
+View eval results dashboard as interactive HTML
 
-**Usage:** `portlang replay [OPTIONS] <TRAJECTORY_ID>`
-
-###### **Arguments:**
-
-* `<TRAJECTORY_ID>` — Trajectory ID (filename without .json extension)
-
-###### **Options:**
-
-* `-f`, `--format <FORMAT>` — Output format (text or json)
-
-  Default value: `text`
-* `--html` — Generate HTML viewer instead of CLI output
-
-
-
-## `portlang diff`
-
-Compare two trajectories
-
-**Usage:** `portlang diff [OPTIONS] <TRAJECTORY_A> <TRAJECTORY_B>`
-
-###### **Arguments:**
-
-* `<TRAJECTORY_A>` — First trajectory ID
-* `<TRAJECTORY_B>` — Second trajectory ID
-
-###### **Options:**
-
-* `-f`, `--format <FORMAT>` — Output format (text or json)
-
-  Default value: `text`
-* `--html` — Generate HTML comparison view instead of CLI output
-
-
-
-## `portlang report`
-
-Generate an adaptation report from existing trajectories
-
-**Usage:** `portlang report [OPTIONS] <FIELD_NAME>`
-
-###### **Arguments:**
-
-* `<FIELD_NAME>` — Field name to analyze
-
-###### **Options:**
-
-* `--converged` — Show only converged trajectories
-* `-f`, `--failed` — Show only failed trajectories
-* `-l`, `--limit <LIMIT>` — Limit number of trajectories to analyze
-
-
-
-## `portlang view`
-
-View evals and trajectories as interactive HTML
-
-**Usage:** `portlang view <COMMAND>`
-
-###### **Subcommands:**
-
-* `trajectory` — View a single trajectory
-* `eval` — View eval results dashboard
-* `diff` — View comparison of two trajectories
-* `field` — View field adaptation report
-
-
-
-## `portlang view trajectory`
-
-View a single trajectory
-
-**Usage:** `portlang view trajectory [OPTIONS] <TRAJECTORY_ID>`
-
-###### **Arguments:**
-
-* `<TRAJECTORY_ID>` — Trajectory ID (filename without .json extension)
-
-###### **Options:**
-
-* `--no-open` — Don't automatically open in browser
-
-
-
-## `portlang view eval`
-
-View eval results dashboard
-
-**Usage:** `portlang view eval [OPTIONS] <ID_OR_DIR>`
+**Usage:** `portlang eval view [OPTIONS] <ID_OR_DIR>`
 
 ###### **Arguments:**
 
@@ -352,9 +215,42 @@ View eval results dashboard
 
 
 
+## `portlang view`
+
+View trajectories and field reports
+
+**Usage:** `portlang view <COMMAND>`
+
+###### **Subcommands:**
+
+* `trajectory` — View a trajectory
+* `diff` — Compare two trajectories
+* `field` — View field adaptation report
+
+
+
+## `portlang view trajectory`
+
+View a trajectory
+
+**Usage:** `portlang view trajectory [OPTIONS] <TRAJECTORY_ID>`
+
+###### **Arguments:**
+
+* `<TRAJECTORY_ID>` — Trajectory ID (filename without .json extension)
+
+###### **Options:**
+
+* `-f`, `--format <FORMAT>` — Output format: "html" (default, opens browser) or "text" (interactive replay) or "json"
+
+  Default value: `html`
+* `--no-open` — Don't automatically open in browser (html format only)
+
+
+
 ## `portlang view diff`
 
-View comparison of two trajectories
+Compare two trajectories
 
 **Usage:** `portlang view diff [OPTIONS] <TRAJECTORY_A> <TRAJECTORY_B>`
 
@@ -365,7 +261,10 @@ View comparison of two trajectories
 
 ###### **Options:**
 
-* `--no-open` — Don't automatically open in browser
+* `-f`, `--format <FORMAT>` — Output format: "html" (default, opens browser) or "text" or "json"
+
+  Default value: `html`
+* `--no-open` — Don't automatically open in browser (html format only)
 
 
 
@@ -381,10 +280,13 @@ View field adaptation report
 
 ###### **Options:**
 
+* `-f`, `--format <FORMAT>` — Output format: "html" (default, opens browser) or "text"
+
+  Default value: `html`
 * `--converged` — Show only converged trajectories
-* `-f`, `--failed` — Show only failed trajectories
+* `--failed` — Show only failed trajectories
 * `-l`, `--limit <LIMIT>` — Limit number of trajectories to analyze
-* `--no-open` — Don't automatically open in browser
+* `--no-open` — Don't automatically open in browser (html format only)
 
 
 

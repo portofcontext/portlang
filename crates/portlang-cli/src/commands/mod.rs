@@ -1,12 +1,7 @@
-pub mod check;
-pub mod converge;
-pub mod diff;
 pub mod eval;
 pub mod evals;
 pub mod init;
 pub mod list;
 pub mod new;
-pub mod replay;
-pub mod report;
 pub mod run;
 pub mod view;
