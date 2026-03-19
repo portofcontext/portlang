@@ -350,6 +350,7 @@ async fn main() {
                 .add_directive("portlang_provider_anthropic=info".parse().unwrap())
                 .add_directive("portlang_provider_openai=info".parse().unwrap())
                 .add_directive("portlang_provider_openrouter=info".parse().unwrap())
+                .add_directive("portlang_runner_claudecode=info".parse().unwrap())
                 .add_directive("portlang_runtime=info".parse().unwrap())
                 .add_directive("portlang_trajectory=info".parse().unwrap()),
         )

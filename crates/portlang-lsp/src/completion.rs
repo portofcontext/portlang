@@ -191,6 +191,11 @@ fn verifier_completions() -> Vec<CompletionItem> {
             "threshold = ${1:0.9}",
         ),
         snippet("schema", "JSON Schema", "schema = '$1'"),
+        snippet(
+            "eval_only",
+            "Skip during 'run', run during 'eval run'",
+            "eval_only = true",
+        ),
     ]
 }
 

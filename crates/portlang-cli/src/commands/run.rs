@@ -80,9 +80,17 @@ fn run_dry(field_path: PathBuf, parent_field: Option<PathBuf>, ctx: RuntimeConte
     }
 
     if !field.verifiers.is_empty() {
+        let run_verifiers: Vec<_> = field.verifiers.iter().filter(|v| !v.eval_only).collect();
+        let eval_verifiers: Vec<_> = field.verifiers.iter().filter(|v| v.eval_only).collect();
         println!("  Verifiers: {}", field.verifiers.len());
-        for verifier in &field.verifiers {
+        for verifier in &run_verifiers {
             println!("    - {} ({:?})", verifier.name, verifier.trigger);
+        }
+        for verifier in &eval_verifiers {
+            println!(
+                "    - {} ({:?}) [eval only]",
+                verifier.name, verifier.trigger
+            );
         }
     }
 
@@ -99,7 +107,8 @@ async fn run_single(
 
     let parent = resolve_parent_config(&field_path, parent_field.as_ref())?;
     let field = parse_field_with_parent(&field_path, parent.as_ref())?;
-    let field = apply_runtime_context(field, &ctx)?;
+    let mut field = apply_runtime_context(field, &ctx)?;
+    field.verifiers.retain(|v| !v.eval_only);
     println!("Field: {}", field.name);
 
     if let Some(description) = &field.description {
@@ -200,7 +209,8 @@ async fn run_multi(
 
     let parent = resolve_parent_config(&field_path, parent_field.as_ref())?;
     let field = parse_field_with_parent(&field_path, parent.as_ref())?;
-    let field = apply_runtime_context(field, &ctx)?;
+    let mut field = apply_runtime_context(field, &ctx)?;
+    field.verifiers.retain(|v| !v.eval_only);
     println!("Field: {}", field.name);
 
     if let Some(description) = &field.description {

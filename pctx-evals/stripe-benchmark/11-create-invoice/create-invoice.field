@@ -43,3 +43,13 @@ output_schema = """
   }
 }
 """
+
+[[verifier]]
+name = "contains-invoice-and-total"
+type = "tool_call"
+eval_only = true
+tool = "submit_output"
+field = "/input"
+matches = "invoice"
+trigger = "on_stop"
+description = "Output must contain an invoice with a total of $7500 (750000 cents)"

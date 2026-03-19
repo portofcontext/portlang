@@ -402,6 +402,7 @@ fn convert_raw_field(
                 algorithm,
                 trigger,
                 description: raw_verifier.description,
+                eval_only: raw_verifier.eval_only,
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -1415,5 +1416,50 @@ root = "./workspace"
         assert_eq!(raw.model.unwrap().name, "anthropic/claude-sonnet-4-6");
         assert!(raw.code_mode.unwrap().enabled);
         assert_eq!(raw.tool.len(), 1);
+    }
+
+    #[test]
+    fn test_eval_only_verifier_parsed_and_filtered() {
+        let toml = r#"
+            name = "test-field"
+
+            [model]
+            name = "anthropic/claude-sonnet-4-6"
+
+            [prompt]
+            goal = "Do something"
+
+            [[verifier]]
+            name = "always-runs"
+            command = "true"
+
+            [[verifier]]
+            name = "eval-grade"
+            type = "levenshtein"
+            expected = "hello"
+            eval_only = true
+        "#;
+
+        let field = parse_field_from_str(toml).unwrap();
+
+        // Both verifiers are present on the parsed field
+        assert_eq!(field.verifiers.len(), 2);
+        assert!(!field.verifiers[0].eval_only);
+        assert!(field.verifiers[1].eval_only);
+
+        // Simulating what `portlang run` does before passing to run_field()
+        let run_verifiers: Vec<_> = field
+            .verifiers
+            .iter()
+            .filter(|v| !v.eval_only)
+            .cloned()
+            .collect();
+        assert_eq!(run_verifiers.len(), 1);
+        assert_eq!(run_verifiers[0].name, "always-runs");
+
+        // Simulating what `portlang eval run` does — no filtering, all verifiers present
+        let eval_verifiers: Vec<_> = field.verifiers.iter().cloned().collect();
+        assert_eq!(eval_verifiers.len(), 2);
+        assert_eq!(eval_verifiers[1].name, "eval-grade");
     }
 }

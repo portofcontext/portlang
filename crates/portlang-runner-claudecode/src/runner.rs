@@ -57,7 +57,11 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
 
     // --- 4. Write helper files into the workspace (visible at /workspace/ in container) ---
     // Writing via the mounted host directory avoids any shell-escaping issues.
-    write_workspace_file(&workspace, ".portlang_cc_goal.txt", &field.prompt.goal)?;
+    let goal = build_goal_with_output_schema(
+        &field.prompt.goal,
+        field.boundary.output_schema.as_ref(),
+    );
+    write_workspace_file(&workspace, ".portlang_cc_goal.txt", &goal)?;
 
     let has_system = field.prompt.system.is_some();
     if let Some(ref system) = field.prompt.system {
@@ -68,7 +72,12 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
     // - MCP tools: passed through directly
     // - Shell tools: generate Python MCP stdio server scripts in the workspace
     // - Python tools: generate base64-embedded Python MCP stdio server scripts
-    let (has_mcp, generated_tool_files) = match build_all_mcp_config(&field.tools, &workspace)? {
+    // - submit_output: generated when output_schema is defined
+    let (has_mcp, generated_tool_files) = match build_all_mcp_config(
+        &field.tools,
+        &workspace,
+        field.boundary.output_schema.as_ref(),
+    )? {
         Some((config, files)) => {
             let json = serde_json::to_string_pretty(&config)?;
             write_workspace_file(&workspace, ".portlang_cc_mcp.json", &json)?;
@@ -106,8 +115,12 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
     // Write claude settings.json into the workspace so the runner script can install it at ~/.claude/
     // This pre-approves all tools and wires up PostToolUse hooks for always/on_tool Shell verifiers.
     // Uses settings.json instead of --dangerously-skip-permissions (which Claude blocks as root).
-    let settings_json =
-        claude_settings_json(&field.tools, &field.verifiers, &field.boundary.allow_write);
+    let settings_json = claude_settings_json(
+        &field.tools,
+        &field.verifiers,
+        &field.boundary.allow_write,
+        field.boundary.output_schema.is_some(),
+    );
     write_workspace_file(&workspace, ".portlang_cc_settings.json", &settings_json)?;
 
     let script = build_runner_script(&auth_env_var, &auth_value, &model, has_system, has_mcp);
@@ -128,6 +141,24 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
 
     let stdout = child.stdout.take().expect("stdout must be piped");
     let mut lines = BufReader::new(stdout).lines();
+
+    // Drain stderr concurrently to prevent pipe-buffer deadlock.
+    // If stderr is not consumed while the subprocess writes to it, the OS pipe
+    // buffer (~64 KB) fills up, the subprocess blocks on the write, stops
+    // producing stdout, and our lines loop waits forever. This is especially
+    // likely when npx downloads packages on first run (lots of npm output).
+    // Log each line in real-time at debug level so it's visible with RUST_LOG=debug.
+    let stderr = child.stderr.take().expect("stderr must be piped");
+    let stderr_task: tokio::task::JoinHandle<String> = tokio::spawn(async move {
+        let mut collected = String::new();
+        let mut lines = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            tracing::debug!(target: "portlang_runner_claudecode::stderr", "{}", line);
+            collected.push_str(&line);
+            collected.push('\n');
+        }
+        collected
+    });
 
     let mut acc = StreamAccumulator::new();
     let max_steps = field.boundary.max_steps.unwrap_or(u64::MAX);
@@ -191,11 +222,18 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
         }
     }
 
-    // Drain stderr for diagnostics (non-blocking wait)
-    let output = child.wait_with_output().await?;
-    if !output.stderr.is_empty() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        tracing::debug!("claude-code stderr:\n{}", stderr);
+    // Collect stderr and wait for process to exit
+    let exit_status = child.wait().await?;
+    let stderr_output = stderr_task.await.unwrap_or_default();
+    if !stderr_output.is_empty() {
+        tracing::warn!("claude-code stderr:\n{}", stderr_output);
+    }
+    if acc.steps.is_empty() {
+        tracing::warn!(
+            "claude-code produced no output (exit code: {:?}). \
+             Check ANTHROPIC_API_KEY/CLAUDE_CODE_OAUTH_TOKEN and that 'claude' is in PATH.",
+            exit_status.code()
+        );
     }
 
     // --- 7. Attach cost/token info to final step ---
@@ -208,6 +246,16 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
         last.tokens_used = total_tokens;
         last.input_tokens = Some(acc.input_tokens);
         last.output_tokens = Some(acc.output_tokens);
+    }
+
+    // Normalize the submit_output tool name: Claude Code reports it as
+    // mcp__submit_output__submit_output but verifiers expect submit_output.
+    for step in &mut acc.steps {
+        if let Action::ToolCall { tool, .. } = &mut step.action {
+            if tool.as_str() == "mcp__submit_output__submit_output" {
+                *tool = "submit_output".into();
+            }
+        }
     }
 
     // Move steps into trajectory
@@ -265,6 +313,7 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
         ".portlang_cc_mcp.json",
         ".portlang_cc_runner.sh",
         ".portlang_cc_settings.json",
+        ".portlang_mcp_submit_output.py",
     ] {
         let _ = std::fs::remove_file(workspace.join(name));
     }
@@ -285,6 +334,23 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Append structured output instructions to the goal when `output_schema` is defined,
+/// mirroring the native runner's context builder.
+fn build_goal_with_output_schema(
+    goal: &str,
+    output_schema: Option<&serde_json::Value>,
+) -> String {
+    let Some(schema) = output_schema else {
+        return goal.to_string();
+    };
+    let schema_pretty =
+        serde_json::to_string_pretty(schema).unwrap_or_else(|_| "{}".to_string());
+    format!(
+        "{}\n\n# Structured Output\n\nThis task requires structured output matching this schema:\n\n```json\n{}\n```\n\nWhen you're ready to submit your results, call the `submit_output` tool passing your JSON fields directly as the tool arguments.\n",
+        goal, schema_pretty
+    )
+}
+
 /// Returns a cloned Environment with required packages injected:
 /// - "claude-code" always (the Claude Code CLI)
 /// - "uv" when the field has python tools (needed to run the MCP server scripts)
@@ -292,7 +358,10 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
 /// Skipped when a custom image or Dockerfile is provided (we assume they
 /// already have the necessary tools).
 fn with_required_packages(env: &Environment, tools: &[portlang_core::Tool]) -> Environment {
-    if env.image.is_some() || env.dockerfile.is_some() {
+    // Pre-built images are assumed to already contain everything they need.
+    // Custom Dockerfiles are NOT skipped — the sandbox will build a composite image
+    // (user Dockerfile base + packages) so claude-code is always available.
+    if env.image.is_some() {
         return env.clone();
     }
     let mut cloned = env.clone();
@@ -516,6 +585,7 @@ fn claude_settings_json(
     tools: &[portlang_core::Tool],
     verifiers: &[portlang_core::Verifier],
     allow_write: &[String],
+    has_output_schema: bool,
 ) -> String {
     let mut mcp_perms: Vec<String> = Vec::new();
     for tool in tools {
@@ -532,6 +602,10 @@ fn claude_settings_json(
             };
             mcp_perms.push(format!("      \"{}\"", perm));
         }
+    }
+
+    if has_output_schema {
+        mcp_perms.push("      \"mcp__submit_output__submit_output\"".to_string());
     }
 
     let mcp_block = if mcp_perms.is_empty() {

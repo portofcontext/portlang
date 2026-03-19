@@ -41,3 +41,13 @@ output_schema = """
   }
 }
 """
+
+[[verifier]]
+name = "contains-customer-ids"
+type = "tool_call"
+eval_only = true
+tool = "submit_output"
+field = "/input"
+matches = "cus_"
+trigger = "on_stop"
+description = "Output must contain customer IDs starting with cus_"

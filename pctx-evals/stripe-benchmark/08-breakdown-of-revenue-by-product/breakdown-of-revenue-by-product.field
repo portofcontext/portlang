@@ -31,3 +31,13 @@ output_schema = """
   }
 }
 """
+
+[[verifier]]
+name = "correct-subscription-and-customer"
+type = "tool_call"
+eval_only = true
+tool = "submit_output"
+field = "/input/customer_id"
+matches = "cus_U7JMREj0hqqV1U"
+trigger = "on_stop"
+description = "Output must return the correct customer ID for the active subscription"

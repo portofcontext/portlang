@@ -86,6 +86,12 @@ pub struct Verifier {
     /// Human-readable description of what this verifier checks
     #[serde(default)]
     pub description: Option<String>,
+
+    /// If true, this verifier is skipped during `portlang run` and only runs during `portlang eval run`.
+    /// Use for ground-truth comparisons (semantic, levenshtein) where the expected value is known
+    /// and should not influence the agent during development runs.
+    #[serde(default)]
+    pub eval_only: bool,
 }
 
 /// When to trigger a verifier

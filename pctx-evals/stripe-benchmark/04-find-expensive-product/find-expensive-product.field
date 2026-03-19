@@ -32,3 +32,13 @@ output_schema = """
   }
 }
 """
+
+[[verifier]]
+name = "contains-team-training-weekend"
+type = "tool_call"
+eval_only = true
+tool = "submit_output"
+field = "/input"
+matches = "Team Training Weekend"
+trigger = "on_stop"
+description = "Output must identify Team Training Weekend as the most expensive product"

@@ -23,13 +23,14 @@ use std::path::Path;
 /// - Shell tools → generate a Python MCP stdio server script in the workspace
 /// - Python tools → generate a Python MCP stdio server script (base64-embedded) in the workspace
 ///
-/// Returns None if the field has no tools at all.
+/// Returns None if the field has no tools and no output_schema.
 /// Also returns the list of generated filenames so the caller can clean them up.
 pub fn build_all_mcp_config(
     tools: &[Tool],
     workspace: &Path,
+    output_schema: Option<&serde_json::Value>,
 ) -> Result<Option<(Value, Vec<String>)>> {
-    if tools.is_empty() {
+    if tools.is_empty() && output_schema.is_none() {
         return Ok(None);
     }
 
@@ -43,24 +44,37 @@ pub fn build_all_mcp_config(
             .clone()
             .unwrap_or_else(|| "mcp-server".to_string());
 
-        let server = if let Some(ref url) = tool.url {
-            let transport = tool.transport.as_ref().map(|_| "sse").unwrap_or("sse");
-            let mut obj = serde_json::Map::new();
-            obj.insert("url".to_string(), json!(url));
-            obj.insert("transport".to_string(), json!(transport));
-            if let Some(ref headers) = tool.headers {
-                obj.insert("headers".to_string(), json!(headers));
+        // MCP tools store transport details in tool.transport (McpTransport enum),
+        // NOT in the top-level tool.command/args/env (those are always empty for MCP tools).
+        let server = match &tool.transport {
+            Some(portlang_core::McpTransport::Sse { url, headers }) => {
+                let mut obj = serde_json::Map::new();
+                obj.insert("url".to_string(), json!(url));
+                obj.insert("transport".to_string(), json!("sse"));
+                if !headers.is_empty() {
+                    obj.insert("headers".to_string(), json!(headers));
+                }
+                Value::Object(obj)
             }
-            Value::Object(obj)
-        } else {
-            let command = tool.command.clone().unwrap_or_default();
-            let mut obj = serde_json::Map::new();
-            obj.insert("command".to_string(), json!(command));
-            obj.insert("args".to_string(), json!(tool.args));
-            if !tool.env.is_empty() {
-                obj.insert("env".to_string(), json!(tool.env));
+            Some(portlang_core::McpTransport::Stdio { command, args, env }) => {
+                let mut obj = serde_json::Map::new();
+                obj.insert("type".to_string(), json!("stdio"));
+                obj.insert("command".to_string(), json!(command));
+                obj.insert("args".to_string(), json!(args));
+                if !env.is_empty() {
+                    // Expand ${VAR} references from the host environment
+                    let expanded: std::collections::HashMap<String, String> = env
+                        .iter()
+                        .map(|(k, v)| (k.clone(), expand_env_vars(v)))
+                        .collect();
+                    obj.insert("env".to_string(), json!(expanded));
+                }
+                Value::Object(obj)
             }
-            Value::Object(obj)
+            None => {
+                // Fallback: no transport set — skip this tool
+                continue;
+            }
         };
 
         servers.insert(name, server);
@@ -84,6 +98,7 @@ pub fn build_all_mcp_config(
         generated_files.push(filename.clone());
 
         let server = json!({
+            "type": "stdio",
             "command": "python3",
             "args": [format!("/workspace/{}", filename)]
         });
@@ -109,10 +124,29 @@ pub fn build_all_mcp_config(
         generated_files.push(filename.clone());
 
         let server = json!({
+            "type": "stdio",
             "command": "uv",
             "args": ["run", format!("/workspace/{}", filename)]
         });
         servers.insert(name, server);
+    }
+
+    // submit_output server: inject when output_schema is defined so the agent
+    // has a tool to submit its structured result (mirrors the native runner).
+    if let Some(schema) = output_schema {
+        let schema_json =
+            serde_json::to_string(schema).unwrap_or_else(|_| "{}".to_string());
+        let script = generate_submit_output_mcp_script(&schema_json);
+        let filename = ".portlang_mcp_submit_output.py".to_string();
+        std::fs::write(workspace.join(&filename), &script)
+            .context("Failed to write submit_output MCP server script")?;
+        generated_files.push(filename);
+        let server = json!({
+            "type": "stdio",
+            "command": "python3",
+            "args": ["/workspace/.portlang_mcp_submit_output.py"]
+        });
+        servers.insert("submit_output".to_string(), server);
     }
 
     if servers.is_empty() {
@@ -361,4 +395,49 @@ for raw in sys.stdin:
         function = function,
         encoded = encoded,
     ))
+}
+
+/// Generate a Python MCP stdio server script for the built-in `submit_output` tool.
+///
+/// Injected whenever `output_schema` is defined, mirroring the native runner's
+/// `submit_output` built-in. The agent calls this tool with the structured fields
+/// as arguments; the portlang stream parser captures the call as a trajectory step
+/// so `tool_call` verifiers can inspect it.
+fn generate_submit_output_mcp_script(schema_json: &str) -> String {
+    format!(
+        r#"#!/usr/bin/env python3
+"""MCP stdio server for portlang built-in submit_output tool."""
+import json, sys
+
+TOOL_NAME = "submit_output"
+TOOL_DESCRIPTION = "Submit the final structured output. Call this when you have all required data. Pass your JSON fields directly as arguments."
+TOOL_SCHEMA = {schema_json}
+
+for raw in sys.stdin:
+    raw = raw.strip()
+    if not raw:
+        continue
+    try:
+        msg = json.loads(raw)
+    except Exception:
+        continue
+    method = msg.get("method", "")
+    mid = msg.get("id")
+    if method == "initialize":
+        r = {{"jsonrpc": "2.0", "id": mid, "result": {{"protocolVersion": "2024-11-05", "capabilities": {{"tools": {{}}}}, "serverInfo": {{"name": TOOL_NAME, "version": "1.0.0"}}}}}}
+    elif method in ("notifications/initialized", "notifications/cancelled"):
+        continue
+    elif method == "tools/list":
+        r = {{"jsonrpc": "2.0", "id": mid, "result": {{"tools": [{{"name": TOOL_NAME, "description": TOOL_DESCRIPTION, "inputSchema": TOOL_SCHEMA}}]}}}}
+    elif method == "tools/call":
+        r = {{"jsonrpc": "2.0", "id": mid, "result": {{"content": [{{"type": "text", "text": "Output submitted successfully. Validation passed."}}]}}}}
+    elif mid is not None:
+        r = {{"jsonrpc": "2.0", "id": mid, "error": {{"code": -32601, "message": f"Unknown method: {{method}}"}}}}
+    else:
+        continue
+    if mid is not None:
+        print(json.dumps(r), flush=True)
+"#,
+        schema_json = schema_json,
+    )
 }

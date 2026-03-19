@@ -31,3 +31,13 @@ output_schema = """
   }
 }
 """
+
+[[verifier]]
+name = "contains-disputes-and-amount"
+type = "tool_call"
+eval_only = true
+tool = "submit_output"
+field = "/input"
+matches = "dispute"
+trigger = "on_stop"
+description = "Output must report a dispute count and associated payment amounts"

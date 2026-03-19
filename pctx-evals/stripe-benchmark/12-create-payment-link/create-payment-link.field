@@ -32,3 +32,13 @@ output_schema = """
   }
 }
 """
+
+[[verifier]]
+name = "contains-payment-link-product-and-amount"
+type = "tool_call"
+eval_only = true
+tool = "submit_output"
+field = "/input"
+matches = "buy\\.stripe\\.com"
+trigger = "on_stop"
+description = "Output must contain the payment link URL, Team Training Workshop product, and $1500 amount"

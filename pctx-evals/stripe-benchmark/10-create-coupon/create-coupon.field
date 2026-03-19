@@ -41,3 +41,13 @@ output_schema = """
   }
 }
 """
+
+[[verifier]]
+name = "contains-eval25-once-and-percent"
+type = "tool_call"
+eval_only = true
+tool = "submit_output"
+field = "/input"
+matches = "EVAL25"
+trigger = "on_stop"
+description = "Output must contain coupon name EVAL25, duration 'once', and 25.5% discount"

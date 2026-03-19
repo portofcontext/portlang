@@ -32,3 +32,13 @@ output_schema = """
   }
 }
 """
+
+[[verifier]]
+name = "contains-available-and-pending"
+type = "tool_call"
+eval_only = true
+tool = "submit_output"
+field = "/input"
+matches = "available"
+trigger = "on_stop"
+description = "Output must reference available and pending balance amounts"

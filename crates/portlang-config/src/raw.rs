@@ -271,6 +271,8 @@ pub struct RawVerifier {
     pub trigger: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub eval_only: bool,
 }
 
 fn default_verifier_type() -> String {

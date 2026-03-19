@@ -31,3 +31,13 @@ output_schema = """
   }
 }
 """
+
+[[verifier]]
+name = "correct-subscription-id"
+type = "tool_call"
+eval_only = true
+tool = "submit_output"
+field = "/input/subscription_id"
+matches = "sub_1T94jeICegwS4jvErlauDPFM"
+trigger = "on_stop"
+description = "Output must return the correct subscription ID for the active subscription"

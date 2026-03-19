@@ -79,6 +79,21 @@ impl StreamAccumulator {
             None => return,
         };
 
+        // Accumulate token usage from each assistant turn so budget-killed runs
+        // still report non-zero tokens (result event is never received on kill).
+        if let Some(usage) = message.get("usage") {
+            self.input_tokens = self.input_tokens.max(
+                usage
+                    .get("input_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
+            );
+            self.output_tokens += usage
+                .get("output_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+        }
+
         let content = match message.get("content").and_then(|v| v.as_array()) {
             Some(c) => c,
             None => return,
@@ -123,6 +138,14 @@ impl StreamAccumulator {
                         .cloned()
                         .unwrap_or(Value::Object(Default::default()));
 
+                    let input_preview = serde_json::to_string(&input).unwrap_or_default();
+                    let preview = if input_preview.len() > 120 {
+                        format!("{}…", &input_preview[..120])
+                    } else {
+                        input_preview
+                    };
+                    tracing::info!("→ tool_use  {} {}", name, preview);
+
                     self.pending.push((id, name, input));
                 }
                 _ => {}
@@ -161,6 +184,12 @@ impl StreamAccumulator {
                     .position(|(id, _, _)| id == &tool_use_id)
                 {
                     let (_, name, input) = self.pending.remove(pos);
+                    let result_preview = if result_text.len() > 120 {
+                        format!("{}…", &result_text[..120])
+                    } else {
+                        result_text.clone()
+                    };
+                    tracing::debug!("← tool_result {} {}", name, result_preview);
                     let step_number = self.steps.len() + 1;
                     let step = TrajectoryStep::new(
                         step_number,
@@ -218,6 +247,13 @@ impl StreamAccumulator {
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
         }
+
+        tracing::info!(
+            "result  subtype={} cost=${:.4} tokens={}",
+            self.result_subtype.as_deref().unwrap_or("?"),
+            self.cost_usd,
+            self.total_tokens()
+        );
 
         // Flush any remaining pending tool calls (without results)
         for (_, name, input) in self.pending.drain(..) {

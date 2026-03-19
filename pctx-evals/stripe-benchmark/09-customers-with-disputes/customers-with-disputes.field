@@ -50,3 +50,13 @@ output_schema = """
   }
 }
 """
+
+[[verifier]]
+name = "contains-disputes-customer-email"
+type = "tool_call"
+eval_only = true
+tool = "submit_output"
+field = "/input"
+matches = "dispute"
+trigger = "on_stop"
+description = "Output must identify customers with disputes including their name, email, and dispute count"

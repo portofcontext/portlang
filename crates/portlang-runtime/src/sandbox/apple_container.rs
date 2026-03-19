@@ -28,7 +28,17 @@ impl AppleContainerSandbox {
         }
 
         if let Some(ref dockerfile_path) = environment.dockerfile {
-            return Self::build_from_dockerfile(dockerfile_path, container_name).await;
+            if environment.packages.is_empty() {
+                return Self::build_from_dockerfile(dockerfile_path, container_name).await;
+            } else {
+                // Layer extra packages on top of the user's Dockerfile image
+                return Self::build_from_dockerfile_with_extras(
+                    dockerfile_path,
+                    &environment.packages,
+                    container_name,
+                )
+                .await;
+            }
         }
 
         if !environment.packages.is_empty() {
@@ -83,6 +93,114 @@ impl AppleContainerSandbox {
 
         let _ = std::fs::write(&marker, "");
         Ok(image_tag)
+    }
+
+    /// Build a composite image: user's Dockerfile base + extra packages/tools layered on top.
+    ///
+    /// Used by the claude-code runner when a custom Dockerfile is provided — it layers
+    /// claude-code (and optionally uv) onto the user's image without modifying their Dockerfile.
+    /// The composite image is cached by a hash of (base image tag + package list).
+    async fn build_from_dockerfile_with_extras(
+        dockerfile_path: &str,
+        packages: &[String],
+        container_name: &str,
+    ) -> Result<String> {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        // Build (or reuse) the base image from the user's Dockerfile
+        let base_image =
+            Self::build_from_dockerfile(dockerfile_path, container_name).await?;
+
+        // Composite cache key: base image tag + sorted package list
+        let mut hasher = DefaultHasher::new();
+        base_image.hash(&mut hasher);
+        packages.hash(&mut hasher);
+        let composite_tag = format!("portlang-composite-{:016x}", hasher.finish());
+
+        let marker = std::env::temp_dir().join(format!("{}.built", composite_tag));
+        if marker.exists() {
+            tracing::info!("Reusing cached composite image: {}", composite_tag);
+            return Ok(composite_tag);
+        }
+
+        let has_uv = packages.iter().any(|p| p == "uv");
+        let has_claude_code = packages.iter().any(|p| p == "claude-code");
+
+        let mut apt_packages: Vec<&str> = packages
+            .iter()
+            .filter(|p| p.as_str() != "uv" && p.as_str() != "claude-code")
+            .map(|s| s.as_str())
+            .collect();
+        if has_uv || has_claude_code {
+            if !apt_packages.contains(&"curl") {
+                apt_packages.push("curl");
+            }
+            if !apt_packages.contains(&"ca-certificates") {
+                apt_packages.push("ca-certificates");
+            }
+        }
+
+        let mut dockerfile_lines = vec![format!("FROM {}", base_image)];
+
+        if !apt_packages.is_empty() {
+            dockerfile_lines.push(format!(
+                "RUN apt-get update && apt-get install -y {} && rm -rf /var/lib/apt/lists/*",
+                apt_packages.join(" ")
+            ));
+        }
+
+        if has_uv {
+            dockerfile_lines.push(
+                "RUN curl -LsSf https://astral.sh/uv/install.sh | env HOME=/root sh".to_string(),
+            );
+            dockerfile_lines.push(r#"ENV PATH="/root/.local/bin:$PATH""#.to_string());
+        }
+
+        if has_claude_code {
+            dockerfile_lines.push(
+                "RUN curl -fsSL https://claude.ai/install.sh | bash".to_string(),
+            );
+            dockerfile_lines.push(r#"ENV PATH="/root/.local/bin:$PATH""#.to_string());
+        }
+
+        let dockerfile_content = dockerfile_lines.join("\n") + "\n";
+        let temp_dockerfile =
+            std::env::temp_dir().join(format!("Dockerfile.{}", composite_tag));
+        std::fs::write(&temp_dockerfile, &dockerfile_content).map_err(|e| {
+            SandboxError::InitError(format!("Failed to write composite Dockerfile: {}", e))
+        })?;
+
+        tracing::info!(
+            "Building composite image (Dockerfile + packages {:?}): {}",
+            packages,
+            composite_tag
+        );
+        let output = Command::new("container")
+            .args([
+                "build",
+                "-f",
+                temp_dockerfile.to_str().unwrap(),
+                "-t",
+                &composite_tag,
+                std::env::temp_dir().to_str().unwrap(),
+            ])
+            .output()
+            .map_err(|e| {
+                SandboxError::InitError(format!("Failed to build composite image: {}", e))
+            })?;
+
+        let _ = std::fs::remove_file(&temp_dockerfile);
+
+        if !output.status.success() {
+            return Err(SandboxError::InitError(format!(
+                "Composite image build failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
+
+        let _ = std::fs::write(&marker, "");
+        Ok(composite_tag)
     }
 
     /// Build container image with additional packages

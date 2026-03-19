@@ -30,3 +30,13 @@ output_schema = """
   }
 }
 """
+
+[[verifier]]
+name = "correct-customer-id"
+type = "tool_call"
+eval_only = true
+tool = "submit_output"
+field = "/input/customer_id"
+matches = "cus_U7JPAF3VYkh5H7"
+trigger = "on_stop"
+description = "Output must return the correct customer ID for Fang Nguyen at Sable Technologies"
