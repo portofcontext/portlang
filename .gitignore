@@ -3,7 +3,8 @@ demo/workspace
 
 skills-lock.json
 
-.claude/
+.claude/*
+!.claude/skills/
 .agents/pctx-evals/*/workspace/
 
 __pycache__

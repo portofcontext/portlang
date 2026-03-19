@@ -80,6 +80,7 @@ transport = "stdio" | "http" | "sse"  # default: stdio
 name = "..."                    # (required) identifier
 trigger = "on_stop" | "always" | "on_tool:<tool_name>"  # default: on_stop
 description = "..."             # injected into context on failure
+eval_only = false               # if true, skipped during `portlang run`; only runs during `portlang eval run`
 
 [[verifier]]
 type = "shell"                  # --- shell verifier (default when type is omitted) ---

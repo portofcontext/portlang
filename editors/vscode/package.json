@@ -2,7 +2,7 @@
   "name": "portlang",
   "displayName": "portlang",
   "description": "Language support for .field files",
-  "version": "0.1.5",
+  "version": "0.1.9",
   "icon": "icons/logo.png",
   "publisher": "portofcontext",
   "repository": {

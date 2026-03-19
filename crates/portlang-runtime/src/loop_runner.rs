@@ -1117,6 +1117,7 @@ mod tests {
             },
             trigger: VerifierTrigger::OnStop,
             description: None,
+            eval_only: false,
         }
     }
 
