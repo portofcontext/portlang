@@ -1,8 +1,9 @@
 name: Build VSCode Extension
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
@@ -17,6 +18,7 @@ jobs:
   build-vscode-extension:
     name: Build VSCode Extension (.vsix)
     runs-on: macos-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -54,12 +56,19 @@ jobs:
         working-directory: editors/vscode
         run: npm run package
 
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=$(gh release list --limit 1 --json tagName -q '.[0].tagName')" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload .vsix to release
-        env:
-          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
         run: |
           VSIX=$(ls editors/vscode/*.vsix | head -1)
-          gh release upload "$RELEASE_TAG" "$VSIX" --clobber
+          gh release upload "${{ steps.tag.outputs.value }}" "$VSIX" --clobber
 
       - name: Job summary
         run: |
@@ -68,6 +77,6 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- Binary: \`target/release/portlang-lsp\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Package: \`${VSIX}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Uploaded to release: \`${{ env.RELEASE_TAG }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Uploaded to release: \`${{ steps.tag.outputs.value }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Next step: drag-and-drop at marketplace.visualstudio.com/manage"  >> "$GITHUB_STEP_SUMMARY"
