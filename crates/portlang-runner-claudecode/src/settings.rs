@@ -327,7 +327,7 @@ fn generate_python_mcp_script(tool: &Tool) -> Result<String> {
 {pep723_header}"""MCP stdio server for portlang python tool: {name}"""
 import json, sys, base64, types
 
-TOOL_NAME = "{name}"
+TOOL_NAME = "{function}"
 TOOL_DESCRIPTION = {desc_json}
 TOOL_SCHEMA = {schema_json}
 FUNCTION_NAME = "{function}"

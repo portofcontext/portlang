@@ -65,10 +65,19 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
         build_goal_with_output_schema(&field.prompt.goal, field.boundary.output_schema.as_ref());
     write_workspace_file(&workspace, ".portlang_cc_goal.txt", &goal)?;
 
-    let has_system = field.prompt.system.is_some();
-    if let Some(ref system) = field.prompt.system {
-        write_workspace_file(&workspace, ".portlang_cc_system.txt", system)?;
-    }
+    // Always write a system prompt. When the field doesn't provide one we inject
+    // a minimal baseline that covers Claude Code quirks (e.g. Write requires
+    // reading first — use Bash to create new files).
+    const BASELINE_SYSTEM: &str = "\
+To create a new file use Bash (e.g. `echo ... > file` or `tee file`). \
+The Write tool requires the file to already exist and to have been read first.";
+
+    let system_text = match &field.prompt.system {
+        Some(s) => format!("{}\n\n{}", s, BASELINE_SYSTEM),
+        None => BASELINE_SYSTEM.to_string(),
+    };
+    write_workspace_file(&workspace, ".portlang_cc_system.txt", &system_text)?;
+    let has_system = true;
 
     // Write MCP config for all tool types:
     // - MCP tools: passed through directly
