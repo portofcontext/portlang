@@ -134,8 +134,7 @@ pub fn build_all_mcp_config(
     // submit_output server: inject when output_schema is defined so the agent
     // has a tool to submit its structured result (mirrors the native runner).
     if let Some(schema) = output_schema {
-        let schema_json =
-            serde_json::to_string(schema).unwrap_or_else(|_| "{}".to_string());
+        let schema_json = serde_json::to_string(schema).unwrap_or_else(|_| "{}".to_string());
         let script = generate_submit_output_mcp_script(&schema_json);
         let filename = ".portlang_mcp_submit_output.py".to_string();
         std::fs::write(workspace.join(&filename), &script)
@@ -143,8 +142,8 @@ pub fn build_all_mcp_config(
         generated_files.push(filename);
         let server = json!({
             "type": "stdio",
-            "command": "python3",
-            "args": ["/workspace/.portlang_mcp_submit_output.py"]
+            "command": "uv",
+            "args": ["run", "/workspace/.portlang_mcp_submit_output.py"]
         });
         servers.insert("submit_output".to_string(), server);
     }

@@ -35,7 +35,11 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
     // --- 2. Create sandbox (starts the Apple Container) ---
     // Ensure claude-code (and uv if python tools are present) are installed in the
     // container image by injecting them as special packages.
-    let env = with_required_packages(&field.environment, &field.tools);
+    let env = with_required_packages(
+        &field.environment,
+        &field.tools,
+        field.boundary.output_schema.is_some(),
+    );
     let registry = Arc::new(ToolRegistry::new());
     let sandbox = create_sandbox(&env, &field.boundary, registry)
         .await
@@ -57,10 +61,8 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
 
     // --- 4. Write helper files into the workspace (visible at /workspace/ in container) ---
     // Writing via the mounted host directory avoids any shell-escaping issues.
-    let goal = build_goal_with_output_schema(
-        &field.prompt.goal,
-        field.boundary.output_schema.as_ref(),
-    );
+    let goal =
+        build_goal_with_output_schema(&field.prompt.goal, field.boundary.output_schema.as_ref());
     write_workspace_file(&workspace, ".portlang_cc_goal.txt", &goal)?;
 
     let has_system = field.prompt.system.is_some();
@@ -258,6 +260,18 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
         }
     }
 
+    // Extract structured output from the submit_output tool call input.
+    // The agent passes its structured fields as tool arguments; we capture them
+    // here so trajectory.structured_output is populated for the caller.
+    for step in &acc.steps {
+        if let Action::ToolCall { tool, input } = &step.action {
+            if tool.as_str() == "submit_output" {
+                trajectory.set_structured_output(input.clone());
+                break;
+            }
+        }
+    }
+
     // Move steps into trajectory
     let steps = std::mem::take(&mut acc.steps);
     for step in steps {
@@ -336,28 +350,28 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
 
 /// Append structured output instructions to the goal when `output_schema` is defined,
 /// mirroring the native runner's context builder.
-fn build_goal_with_output_schema(
-    goal: &str,
-    output_schema: Option<&serde_json::Value>,
-) -> String {
+fn build_goal_with_output_schema(goal: &str, output_schema: Option<&serde_json::Value>) -> String {
     let Some(schema) = output_schema else {
         return goal.to_string();
     };
-    let schema_pretty =
-        serde_json::to_string_pretty(schema).unwrap_or_else(|_| "{}".to_string());
+    let schema_pretty = serde_json::to_string_pretty(schema).unwrap_or_else(|_| "{}".to_string());
     format!(
-        "{}\n\n# Structured Output\n\nThis task requires structured output matching this schema:\n\n```json\n{}\n```\n\nWhen you're ready to submit your results, call the `submit_output` tool passing your JSON fields directly as the tool arguments.\n",
+        "{}\n\n# Structured Output\n\nThis task requires structured output matching this schema:\n\n```json\n{}\n```\n\nWhen you're ready to submit your results, use ToolSearch with query `select:mcp__submit_output__submit_output` to fetch the tool, then call it passing your JSON fields directly as the tool arguments.\n",
         goal, schema_pretty
     )
 }
 
 /// Returns a cloned Environment with required packages injected:
 /// - "claude-code" always (the Claude Code CLI)
-/// - "uv" when the field has python tools (needed to run the MCP server scripts)
+/// - "uv" when the field has python tools or an output_schema (submit_output uses uv run)
 ///
 /// Skipped when a custom image or Dockerfile is provided (we assume they
 /// already have the necessary tools).
-fn with_required_packages(env: &Environment, tools: &[portlang_core::Tool]) -> Environment {
+fn with_required_packages(
+    env: &Environment,
+    tools: &[portlang_core::Tool],
+    has_output_schema: bool,
+) -> Environment {
     // Pre-built images are assumed to already contain everything they need.
     // Custom Dockerfiles are NOT skipped — the sandbox will build a composite image
     // (user Dockerfile base + packages) so claude-code is always available.
@@ -369,7 +383,7 @@ fn with_required_packages(env: &Environment, tools: &[portlang_core::Tool]) -> E
         cloned.packages.push("claude-code".to_string());
     }
     let has_python_tools = tools.iter().any(|t| t.tool_type == "python");
-    if has_python_tools && !cloned.packages.iter().any(|p| p == "uv") {
+    if (has_python_tools || has_output_schema) && !cloned.packages.iter().any(|p| p == "uv") {
         cloned.packages.push("uv".to_string());
     }
     cloned
@@ -680,7 +694,7 @@ fn claude_settings_json(
       "NotebookRead(*)",
       "NotebookEdit(*)"{}
     ],
-    "deny": []
+    "deny": ["AskUserQuestion"]
   }}{}
 }}"#,
         mcp_block, hooks_block

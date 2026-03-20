@@ -1,5 +1,6 @@
 mod commands;
 mod output;
+mod progress;
 
 use clap::{Parser, Subcommand};
 use portlang_core::{InputSource, RuntimeContext};
@@ -147,6 +148,10 @@ enum Commands {
         /// Agent loop runner: "native" (default) or "claude-code"
         #[arg(long = "runner", default_value = "native")]
         runner: String,
+
+        /// After the run completes, automatically reflect on that trajectory
+        #[arg(long)]
+        auto_reflect: bool,
     },
     /// List trajectories
     List {
@@ -175,6 +180,25 @@ enum Commands {
         #[command(subcommand)]
         subcommand: ViewSubcommand,
     },
+    /// Analyze trajectories and surface insights about a field
+    Reflect {
+        /// Field name to analyze (must match a subdirectory in ~/.portlang/trajectories/)
+        #[arg(short = 'f', long)]
+        field: Option<String>,
+
+        /// Analyze a specific trajectory by ID instead of the N most recent
+        #[arg(short = 't', long = "trajectory-id")]
+        trajectory_id: Option<String>,
+
+        /// Number of recent trajectories to analyze (default: 5)
+        #[arg(short = 'n', long = "trajectories", default_value = "5")]
+        trajectories: usize,
+
+        /// Agent loop runner: "native" (default) or "claude-code"
+        #[arg(long = "runner", default_value = "native")]
+        runner: String,
+    },
+
     /// Print CLI reference documentation as Markdown
     Docs,
 }
@@ -336,24 +360,25 @@ fn build_runtime_context(
 
 #[tokio::main]
 async fn main() {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive(tracing::Level::WARN.into())
-                .add_directive("portlang_adapt=info".parse().unwrap())
-                .add_directive("portlang_check=info".parse().unwrap())
-                .add_directive("portlang_cli=info".parse().unwrap())
-                .add_directive("portlang_config=info".parse().unwrap())
-                .add_directive("portlang_core=info".parse().unwrap())
-                .add_directive("portlang_pipeline=info".parse().unwrap())
-                .add_directive("portlang_provider_anthropic=info".parse().unwrap())
-                .add_directive("portlang_provider_openai=info".parse().unwrap())
-                .add_directive("portlang_provider_openrouter=info".parse().unwrap())
-                .add_directive("portlang_runner_claudecode=info".parse().unwrap())
-                .add_directive("portlang_runtime=info".parse().unwrap())
-                .add_directive("portlang_trajectory=info".parse().unwrap()),
-        )
+    // Initialize tracing with a progress layer that drives the run spinner
+    use tracing_subscriber::prelude::*;
+    let env_filter = tracing_subscriber::EnvFilter::from_default_env()
+        .add_directive(tracing::Level::WARN.into())
+        .add_directive("portlang_adapt=info".parse().unwrap())
+        .add_directive("portlang_check=info".parse().unwrap())
+        .add_directive("portlang_cli=info".parse().unwrap())
+        .add_directive("portlang_config=info".parse().unwrap())
+        .add_directive("portlang_core=info".parse().unwrap())
+        .add_directive("portlang_pipeline=info".parse().unwrap())
+        .add_directive("portlang_provider_anthropic=info".parse().unwrap())
+        .add_directive("portlang_provider_openai=info".parse().unwrap())
+        .add_directive("portlang_provider_openrouter=info".parse().unwrap())
+        .add_directive("portlang_runner_claudecode=info".parse().unwrap())
+        .add_directive("portlang_runtime=info".parse().unwrap())
+        .add_directive("portlang_trajectory=info".parse().unwrap());
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_filter(env_filter))
+        .with(crate::progress::ProgressTracingLayer)
         .init();
 
     let cli = Cli::parse();
@@ -414,10 +439,13 @@ async fn main() {
             vars,
             input,
             runner,
+            auto_reflect,
         } => match build_runtime_context(var, vars, input) {
             Ok(ctx) => {
-                commands::run::run_command(field_path, parent_field, ctx, runner, dry_run, runs)
-                    .await
+                commands::run::run_command(
+                    field_path, parent_field, ctx, runner, dry_run, runs, auto_reflect,
+                )
+                .await
             }
             Err(e) => Err(e),
         },
@@ -469,6 +497,12 @@ async fn main() {
                 field_name, converged, failed, limit, &format, !no_open,
             ),
         },
+        Commands::Reflect {
+            field,
+            trajectory_id,
+            trajectories,
+            runner,
+        } => commands::reflect::reflect_command(field, trajectory_id, trajectories, runner).await,
         Commands::Docs => {
             let markdown = clap_markdown::help_markdown::<Cli>();
             std::fs::write("CLI.md", &markdown).expect("failed to write CLI.md");

@@ -17,6 +17,7 @@ pub async fn run_command(
     runner: String,
     dry_run: bool,
     runs: usize,
+    auto_reflect: bool,
 ) -> Result<()> {
     if dry_run {
         return run_dry(field_path, parent_field, ctx);
@@ -24,7 +25,7 @@ pub async fn run_command(
     if runs > 1 {
         return run_multi(field_path, runs, parent_field, ctx, runner).await;
     }
-    run_single(field_path, parent_field, ctx, runner).await
+    run_single(field_path, parent_field, ctx, runner, auto_reflect).await
 }
 
 fn run_dry(field_path: PathBuf, parent_field: Option<PathBuf>, ctx: RuntimeContext) -> Result<()> {
@@ -102,6 +103,7 @@ async fn run_single(
     parent_field: Option<PathBuf>,
     ctx: RuntimeContext,
     runner: String,
+    auto_reflect: bool,
 ) -> Result<()> {
     println!("Running field: {}", field_path.display());
 
@@ -126,8 +128,19 @@ async fn run_single(
             .template("{spinner:.green} {msg}")
             .unwrap(),
     );
-    progress.set_message("Starting...");
+    crate::progress::set_status("");
     progress.enable_steady_tick(std::time::Duration::from_millis(100));
+    // Drive spinner message from tracing events via the global status.
+    let pb = progress.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+            let msg = crate::progress::get_status();
+            if !msg.is_empty() {
+                pb.set_message(msg);
+            }
+        }
+    });
 
     let trajectory = match runner.as_str() {
         "claude-code" => {
@@ -192,6 +205,22 @@ async fn run_single(
 
     println!("\nTo view the trajectory:");
     println!("  portlang view trajectory {}", trajectory.id.filename());
+
+    if auto_reflect {
+        println!();
+        let traj_id = trajectory
+            .id
+            .filename()
+            .trim_end_matches(".json")
+            .to_string();
+        crate::commands::reflect::reflect_command(
+            Some(trajectory.field_name.clone()),
+            Some(traj_id),
+            1,
+            runner,
+        )
+        .await?;
+    }
 
     Ok(())
 }

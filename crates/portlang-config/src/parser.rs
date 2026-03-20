@@ -848,10 +848,16 @@ pub fn apply_runtime_context(mut field: Field, ctx: &RuntimeContext) -> Result<F
         .collect();
     field.prompt.re_observation = re_obs?;
 
-    // Interpolate tool descriptions and shell tool commands
+    // Interpolate environment root
+    field.environment.root = interpolate(&field.environment.root, &effective)?;
+
+    // Interpolate tool descriptions, file paths, and shell tool commands
     for tool in &mut field.tools {
         if let Some(ref d) = tool.description.clone() {
             tool.description = Some(interpolate(d, &effective)?);
+        }
+        if let Some(ref f) = tool.file.clone() {
+            tool.file = Some(interpolate(f, &effective)?);
         }
         if tool.tool_type == "shell" {
             if let Some(ref cmd) = tool.command.clone() {

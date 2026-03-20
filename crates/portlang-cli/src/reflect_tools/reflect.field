@@ -1,0 +1,83 @@
+name = "reflect"
+description = "Trajectory reflection and analysis"
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.2
+
+[prompt]
+system = """
+You are a portlang trajectory analyst. Analyze agent execution traces and identify patterns
+that reveal inefficiency, confusion, and improvement opportunities.
+
+Key signals to look for:
+
+CONTEXT WASTE
+- Steps where input_tokens is much larger than prior steps — context is accumulating fast
+- Steps where result_truncated=true and result_length is very large (tool returned far more
+  data than the agent needed — a prime target for a scoped shell tool or prompt constraints)
+- text_output steps with high output_tokens that don't contribute to the final outcome
+
+STUCK PATTERNS
+- The same tool called multiple times with near-identical tool_params within a few steps
+- Multiple ToolSearch calls (agent keeps hunting for tools it should already know)
+- Backtracking: an action is taken, then reversed or retried shortly after
+- Rejected steps (rejected=true) — a verifier blocked the action mid-stream
+
+VERIFIER FAILURES
+- Steps with verifier_results where passed=false — read the stderr carefully
+- Consistent failures on the same verifier across multiple runs suggest a prompt or
+  output_schema gap, not just bad luck
+
+portlang knobs to reference in recommendations:
+- [prompt] goal/system: tighten scope, add output format constraints
+- [prompt] re_observation: inject fresh context before each step (e.g. current file state)
+- [boundary] output_schema: enforce structured output to eliminate verbose text_output steps
+- [boundary] max_steps/max_tokens: right-size the ceilings based on observed usage
+- [[verifier]] trigger="on_tool:<name>": catch bad outputs mid-trajectory, not just at stop
+- [[tool]] type="shell": replace over-fetching MCP/API calls with a scoped query that
+  returns only what the agent needs
+"""
+goal = "{{ goal }}"
+
+[environment]
+root = "{{ portlang_root }}"
+
+[boundary]
+allow_write = []
+network = "deny"
+max_tokens = 500000
+max_cost = "$2.00"
+max_steps = 50
+output_schema = """
+{
+  "type": "object",
+  "required": ["analysis", "recommendations"],
+  "properties": {
+    "analysis": {
+      "type": "string",
+      "description": "A concise analysis. Cover what you observed across the trajectories: where context grows, any stuck or confused behavior, verifier failures and why they happened, surprising or inefficient tool usage patterns. Weave in specific data points (step numbers, token counts, result sizes) where they illuminate the pattern. Skip metrics that don't reveal anything interesting."
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["priority", "suggestion", "rationale"],
+        "properties": {
+          "priority":   { "type": "string", "enum": ["high", "medium", "low"] },
+          "suggestion": { "type": "string", "description": "Specific, actionable change to make to the field configuration" },
+          "rationale":  { "type": "string", "description": "What in the trajectories motivated this" }
+        }
+      }
+    }
+  }
+}
+"""
+
+[[tool]]
+type = "python"
+file = "{{ portlang_root }}/builtin/reflect/tools/list_trajectories.py"
+
+[[tool]]
+type = "python"
+file = "{{ portlang_root }}/builtin/reflect/tools/load_trajectory.py"

@@ -17,6 +17,7 @@ This document contains the help content for the `portlang` command-line program.
 * [`portlang view trajectory`↴](#portlang-view-trajectory)
 * [`portlang view diff`↴](#portlang-view-diff)
 * [`portlang view field`↴](#portlang-view-field)
+* [`portlang reflect`↴](#portlang-reflect)
 * [`portlang docs`↴](#portlang-docs)
 
 ## `portlang`
@@ -33,6 +34,7 @@ portlang - agent runtime with structured tools and verifiers
 * `list` — List trajectories
 * `eval` — Run evals and inspect results
 * `view` — View trajectories and field reports
+* `reflect` — Analyze trajectories and surface insights about a field
 * `docs` — Print CLI reference documentation as Markdown
 
 
@@ -126,6 +128,7 @@ Run a field
 * `--runner <RUNNER>` — Agent loop runner: "native" (default) or "claude-code"
 
   Default value: `native`
+* `--auto-reflect` — After the run completes, automatically reflect on that trajectory
 
 
 
@@ -287,6 +290,25 @@ View field adaptation report
 * `--failed` — Show only failed trajectories
 * `-l`, `--limit <LIMIT>` — Limit number of trajectories to analyze
 * `--no-open` — Don't automatically open in browser (html format only)
+
+
+
+## `portlang reflect`
+
+Analyze trajectories and surface insights about a field
+
+**Usage:** `portlang reflect [OPTIONS]`
+
+###### **Options:**
+
+* `-f`, `--field <FIELD>` — Field name to analyze (must match a subdirectory in ~/.portlang/trajectories/)
+* `-t`, `--trajectory-id <TRAJECTORY_ID>` — Analyze a specific trajectory by ID instead of the N most recent
+* `-n`, `--trajectories <TRAJECTORIES>` — Number of recent trajectories to analyze (default: 5)
+
+  Default value: `5`
+* `--runner <RUNNER>` — Agent loop runner: "native" (default) or "claude-code"
+
+  Default value: `native`
 
 
 

@@ -189,7 +189,7 @@ impl StreamAccumulator {
                     } else {
                         result_text.clone()
                     };
-                    tracing::debug!("← tool_result {} {}", name, result_preview);
+                    tracing::info!("← tool_result {} {}", name, result_preview);
                     let step_number = self.steps.len() + 1;
                     let step = TrajectoryStep::new(
                         step_number,

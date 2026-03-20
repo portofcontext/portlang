@@ -109,8 +109,7 @@ impl AppleContainerSandbox {
         use std::hash::{Hash, Hasher};
 
         // Build (or reuse) the base image from the user's Dockerfile
-        let base_image =
-            Self::build_from_dockerfile(dockerfile_path, container_name).await?;
+        let base_image = Self::build_from_dockerfile(dockerfile_path, container_name).await?;
 
         // Composite cache key: base image tag + sorted package list
         let mut hasher = DefaultHasher::new();
@@ -158,15 +157,12 @@ impl AppleContainerSandbox {
         }
 
         if has_claude_code {
-            dockerfile_lines.push(
-                "RUN curl -fsSL https://claude.ai/install.sh | bash".to_string(),
-            );
+            dockerfile_lines.push("RUN curl -fsSL https://claude.ai/install.sh | bash".to_string());
             dockerfile_lines.push(r#"ENV PATH="/root/.local/bin:$PATH""#.to_string());
         }
 
         let dockerfile_content = dockerfile_lines.join("\n") + "\n";
-        let temp_dockerfile =
-            std::env::temp_dir().join(format!("Dockerfile.{}", composite_tag));
+        let temp_dockerfile = std::env::temp_dir().join(format!("Dockerfile.{}", composite_tag));
         std::fs::write(&temp_dockerfile, &dockerfile_content).map_err(|e| {
             SandboxError::InitError(format!("Failed to write composite Dockerfile: {}", e))
         })?;
