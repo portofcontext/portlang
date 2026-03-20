@@ -37,7 +37,7 @@ Flag any that don't match the Cargo workspace version (VSCode extension must mat
 ## Phase 2: Regenerate CLI.md
 
 ```bash
-cargo run -- docs > CLI.md
+cargo run docs
 ```
 
 Then show what changed:
