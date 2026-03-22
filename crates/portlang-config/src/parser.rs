@@ -463,15 +463,8 @@ fn convert_raw_field(
                                 ))
                             })?;
 
-                        // Default name: explicit > file stem > function name.
-                        // File stem (e.g. "calculator" from "calculator.py") is
-                        // preferred over function name ("execute") so that MCP
-                        // tool discovery works intuitively via ToolSearch.
-                        let default_name = file_path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .map(|s| s.to_string())
-                            .unwrap_or(tool_meta.name.clone());
+                        // Default name: explicit > function name.
+                        let default_name = tool_meta.name.clone();
                         tools.push(Tool {
                             tool_type: "python".to_string(),
                             name: Some(raw_tool.name.unwrap_or(default_name)),

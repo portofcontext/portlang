@@ -36,31 +36,38 @@ npx skills add https://github.com/portofcontext/skills --skill portlang
 ## Example
 
 ```toml
-# hello-world.field
-name = "hello-world"
+# fix-bug.field
+name = "fix-bug"
 
 [model]
 name = "anthropic/claude-sonnet-4.6"
-temperature = 1.0
+temperature = 0.2
 
 [prompt]
-goal = "Write a Python script called hello.py that prints 'Hello, World!' and stop."
+goal = """
+There is a bug in src/ causing the test suite to fail. Find it and fix it.
+"""
+# Inject live test output before every step — agent always knows what's failing
+re_observation = ["cd /workspace && python -m pytest tests/ -q 2>&1 | tail -10"]
+
+[environment]
+root = "./workspace"
 
 [boundary]
-allow_write = ["*.py"]
-max_steps = 5
-max_cost = "$0.10"
+allow_write = ["src/*.py"]   # sandbox-enforced: agent cannot touch tests/ to cheat
+max_steps = 20
+max_cost = "$0.50"
 
+# Success criterion: the test suite must pass
 [[verifier]]
-name = "correct-output"
-command = "cd /workspace && python3 hello.py | grep -qF 'Hello, World!'"
-description = "Running the script must print: Hello, World!"
+name = "tests-pass"
+command = "cd /workspace && python -m pytest tests/ -q"
 ```
 
 ```bash
-portlang run hello-world.field
-portlang converge hello-world.field -n 10   # measure reliability
-portlang view trajectory <id>               # replay any run step-by-step
+portlang run fix-bug.field
+portlang converge fix-bug.field -n 20   # run 20x — what % does it converge?
+portlang view trajectory <id>           # replay any run step-by-step
 ```
 
 ### Eval suites with `parent.field`
@@ -104,7 +111,7 @@ Treat `.field` files as code. Review tool definitions and boundary policies befo
 
 ## Claude Code Runner
 
-portlang can use [Claude Code](https://claude.ai/code) as its agent loop instead of the native loop. This gives the agent Edit (diff-based), Glob, Grep, LSP, WebSearch, and WebFetch — the full Claude Code toolset — inside of portlang.
+portlang can use [Claude Code](https://claude.ai/code) as its agent loop instead of the native loop. This gives the agent the full Claude Code toolset inside of portlang.
 
 ```bash
 portlang run --runner claude-code field.field
@@ -112,20 +119,52 @@ portlang run --runner claude-code field.field
 
 **Auth:** if you already use Claude Code, no setup is needed — portlang reads credentials from `~/.claude/.credentials.json` automatically. Otherwise, run `claude setup-token` to generate a long-lived OAuth token, or set `ANTHROPIC_API_KEY` to use the API directly.
 
-**Field config mapping:**
-
-| Field config | Behavior |
-|---|---|
-| `model.name` | Passed to Claude Code |
-| `[[tool]]` (MCP) | Passed directly via `--mcp-config` |
-| `[[tool]]` (shell/python) | Wrapped as MCP stdio servers, run in container |
-| `boundary.allow_write` | Enforced via PostToolUse hook on Write/Edit |
-| `boundary.max_steps/cost/tokens` | Monitored from stream; process killed on breach |
-| `[[verifier]]` (shell, on_stop) | Run by portlang after agent exits |
-| `[[verifier]]` (shell, always/on_tool) | Run as Claude Code PostToolUse hooks |
-| `boundary.network` | Always enabled (Claude Code requires API access) |
-
 **Limitations vs native runner:** `ToolCall` verifiers and boundary context tracing are not supported
+
+---
+
+## Reflect
+
+`portlang reflect` analyzes a trajectory and identifies concrete ways to improve your field — fewer steps, lower cost, better reliability. The analysis is grounded in the specific steps your agent took and the outcomes it achieved.
+
+```bash
+portlang run field.field --auto-reflect   # reflect automatically after each run
+portlang reflect <trajectory-id>          # reflect on a past run
+```
+
+> `reflect` is itself a portlang field — see [reflect.field](crates/portlang-cli/src/reflect_tools/reflect.field).
+
+**Example: tool naming is part of the environment**
+
+The [examples/03-custom-python-tool](examples/03-custom-python-tool/) field uses a Python calculator tool with a function named `execute`. When run with `--runner claude-code`, Claude Code uses ToolSearch to discover tools lazily — so the agent searches for "calculator":
+
+```
+→ ToolSearch  {"query": "calculator"}
+← ToolSearch  No matching deferred tools found
+
+→ ToolSearch  {"query": "select:mcp__execute__execute"}
+← ToolSearch  (empty — tool is loaded, not deferred)
+
+→ mcp__execute__execute  {"expression": "144 * 259"}   ← finally works, by guessing
+```
+
+Two wasted round-trips because the prompt says "calculator" and the tool is named `execute`. Reflect surfaces this immediately:
+
+> **HIGH** Add 'calculator', 'math', 'arithmetic' as keywords to the tool description so ToolSearch resolves it on the first try. Steps 1–2 are pure tool-hunting waste.
+
+The fix is one word in the Python file:
+
+```python
+# before
+def execute(expression: str) -> CalculatorResult:
+
+# after
+def calculate(expression: str) -> CalculatorResult:
+```
+
+portlang auto-extracts the function name as the tool name, so the rename propagates automatically. The agent now has a tool called `calculate` — semantically close enough to "calculator" that it can orient immediately without guessing.
+
+This is what "environment-first" means in practice: the agent's behavior is a function of the environment you define. Reflect shows you which knobs to turn.
 
 ---
 
