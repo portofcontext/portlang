@@ -241,7 +241,7 @@
             </a>
         </div>
         <div class="meta">
-            Technical Manifesto & Design Document (Draft 0.2, March 2026)<br>
+            Technical Manifesto & Design Document (Draft 0.3, March 2026)<br>
             <a href="https://github.com/portofcontext/portlang"
                 style="color: var(--harbor-blue); text-decoration: none;">github.com/portofcontext/portlang</a>
         </div>
@@ -251,455 +251,377 @@
         <h2>Contents</h2>
         <ol>
             <li><a href="#problem">The Problem</a></li>
-            <li><a href="#foundations">Theoretical Foundations</a></li>
+            <li><a href="#search">Why "Search Space" is the Right Model</a></li>
             <li><a href="#principles">Design Principles</a></li>
-            <li><a href="#primitives">The Six Primitives</a></li>
-            <li><a href="#configuration">The Configuration Layer</a></li>
-            <li><a href="#runtime">The Runtime</a></li>
-            <li><a href="#checks">Structural Checks</a></li>
-            <li><a href="#observability">Observability, Adaptation & Debugging</a></li>
-            <li><a href="#composition">Composition & Multi-Agent</a></li>
+            <li><a href="#primitives">The Primitives</a></li>
+            <li><a href="#practice">A Field in Practice</a></li>
+            <li><a href="#observability">Observability & Reflection</a></li>
             <li><a href="#limitations">What This Does Not Solve</a></li>
         </ol>
     </nav>
 
     <section id="problem">
         <h2>I. The Problem</h2>
-        <p>The current generation of agent frameworks (LangChain, CrewAI, AutoGen, Semantic Kernel) share a common
-            architecture: they are <strong>loop orchestrators</strong>. They manage turn-taking between a language model
-            and tools. Call the model, parse output, dispatch tool calls, append results, repeat.</p>
 
-        <p>This architecture rests on an implicit model: the agent reasons through a task, and the framework provides
-            instructions and tools. The developer's work is prompt engineering.</p>
+        <p>Most agent frameworks are loop managers. Call the model, parse output, dispatch tool calls, append results,
+            repeat. This works for short tasks. For anything longer (a multi-file refactor, a complex data pipeline,
+            an overnight job), it breaks down in predictable ways.</p>
 
-        <p>This model works for short tasks. For long tasks (overnight refactors, multi-file changes, complex
-            pipelines) it degrades. The context window fills with noise. Early observations compound into persistent
-            drift. The agent optimizes for whatever signal is easiest, which may differ from your intent.</p>
+        <p>Context fills with noise. The agent drifts from its original intent. It finds shortcuts that satisfy the
+            surface objective but not the real one. A common failure: an agent asked to fix a bug modifies the test
+            file to make the tests pass instead. Nothing in the framework stopped it.</p>
 
-        <p>These problems are structural consequences of how these systems work, following from the
-            mathematics of pre-training and reinforcement learning. They require structural solutions.</p>
+        <p>When these runs fail, there's no structured record of what happened. You're left guessing whether the
+            problem was the prompt, the tools, the model, or something else.</p>
 
-        <p>This document describes a framework built on a different premise: <strong>agent behavior is search. The
-                developer's primary job is engineering the search space.</strong></p>
+        <p>The root cause is architectural. These frameworks treat agent behavior as the product of instructions.
+            Better prompt, better behavior. But prompts are suggestions, not guarantees. And for long-running tasks,
+            "suggest better" doesn't scale.</p>
+
+        <p>portlang starts from a different premise: <strong>agent behavior is search through a space you define.
+            Your job is engineering the space.</strong></p>
     </section>
 
-    <section id="foundations">
-        <h2>II. Theoretical Foundations</h2>
+    <section id="search">
+        <h2>II. Why "Search Space" is the Right Model</h2>
 
-        <h3>The Prompt as Conditional Distribution</h3>
-        <p>A pre-trained language model learns a distribution over token sequences. Given a prefix c, the model
-            generates continuations by sampling from P(x<sub>k+1</sub>, x<sub>k+2</sub>, … | c). The prompt is a
-            conditioning variable. It selects which region of the model's learned distribution we sample from.</p>
+        <h3>The intuition</h3>
 
-        <p>Three consequences matter for framework design:</p>
+        <p>Imagine two versions of the same coding task. In version A, the agent can write to any file and receives
+            no feedback until the run ends. In version B, the agent can only write to <code>src/</code>, gets test
+            results after every file write, and the run fails immediately if it tries to touch <code>tests/</code>.</p>
+
+        <p>Both versions use the same model and the same goal. But the agent in version B will behave completely
+            differently. The reason isn't the prompt; it's the <em>space it's searching through</em>. It can't take the shortcut of modifying tests. It gets immediate signal when something breaks.
+            It knows it can't write outside <code>src/</code>.</p>
+
+        <p>This is the core idea: the behavior you observe is largely a function of the environment you define.</p>
+
+        <h3>The science behind it</h3>
+
+        <p>A language model learns a probability distribution over token sequences during pre-training. Your prompt
+            is a conditioning variable that selects which region of that distribution you're sampling from.
+            Reinforcement learning then shapes <em>which paths through that space</em> the model tends to take,
+            training the model to navigate toward a reward signal.</p>
+
+        <p>At inference time, the model is a policy: given the current context window (everything the agent has
+            seen), generate the next action. Three properties of this setup matter for framework design:</p>
+
         <ul>
-            <li><strong>Sensitivity:</strong> Atomic formatting changes can cause accuracy swings of up to 76 percentage
-                points (Sclar et al., 2023). Different prompts create different distributions.</li>
-            <li><strong>Narrowing:</strong> More tokens on a topic further constrain the reachable output space. Each
-                token in the context window participates in determining what comes next.</li>
-            <li><strong>Persistence:</strong> The model has no memory beyond the context window, no persistent state.
-                Whatever the model "knows" is mediated entirely through visible tokens.</li>
+            <li><strong>Sensitivity:</strong> Small changes to context, like different tool ordering, a rephrased goal,
+                or verbose error output, can cause large behavior changes. Sclar et al. (2023) measured accuracy swings
+                of up to 76 percentage points from formatting changes alone. The context isn't just background;
+                every token participates in determining what comes next.</li>
+
+            <li><strong>Reward-chasing:</strong> The model was trained to satisfy a reward proxy, not your intent
+                specifically. If there's a path that satisfies the proxy without satisfying your actual goal, the
+                model can find it. This is why agents modify test files, hardcode expected outputs, or produce
+                plausible-looking outputs that don't actually work. The proxy said "pass"; the model found the
+                shortest path to "pass."</li>
+
+            <li><strong>Context is reality:</strong> The model has no state outside the context window. Whatever it
+                "knows" during a run is whatever appeared in the token stream. Noise (verbose tool output, redundant
+                observations, accumulated error messages) degrades behavior even when useful information is
+                still present.</li>
         </ul>
 
-        <h3>Reinforcement Learning as Search</h3>
-        <p>Pre-training determines what the model can produce. Reinforcement learning determines what it will produce.
-            The model becomes a policy π<sub>θ</sub> operating in an environment where state is the current context
-            window, action is the model's output, and reward indicates action quality.</p>
+        <h3>portlang's response</h3>
 
-        <p>Three properties matter:</p>
+        <p>Rather than fighting these properties with increasingly complex prompts, portlang makes them tractable
+            through environment design:</p>
+
         <ul>
-            <li><strong>Reward-chasing:</strong> The model maximizes whatever proxy defined the reward function.
-                Whatever that proxy measured becomes the objective. Whatever it left unmeasured remains open space.</li>
-            <li><strong>Proxy mismatch:</strong> The reward function measures what the model provider could measure at
-                training time. Models have been documented tracing through call stacks to find pre-computed answers, or
-                circling endlessly for bonus points instead of finishing the race.</li>
-            <li><strong>Policy opacity:</strong> You did not design the reward function, you do not know its full
-                specification, and you can only observe the behavior it produces. The trained policy is the one thing
-                you cannot change at runtime.</li>
+            <li>The <strong>boundary</strong> physically prevents reward-chasing: the agent cannot modify
+                <code>tests/</code> if <code>allow_write = ["src/*.py"]</code> is enforced at the container level.</li>
+            <li><strong>Re-observations</strong> keep the context accurate each step rather than letting stale or
+                noisy tokens accumulate.</li>
+            <li><strong>Verifiers</strong> provide an explicit runtime feedback signal, the inference-time
+                equivalent of training reward.</li>
+            <li>Hard limits on tokens and cost mean runs fail fast and cleanly instead of spiraling.</li>
         </ul>
 
-        <h3>The Joint Inference: Search in a Conditioned Space</h3>
-        <p>At inference, the pre-trained distribution and RL policy combine. The prompt conditions the distribution
-            (narrowing what's reachable), and the policy navigates that space (selecting trajectories that maximize
-            reward). The full trajectory is a sequence of (state, action, feedback) tuples, where each state is the
-            accumulated context window.</p>
-
-        <p><strong>Agents execute search.</strong> The agent executes a learned policy that navigates
-            through possible trajectories toward a reward signal. Chain-of-thought tokens and planning steps are part of
-            the trajectory. They enter the context window and re-condition the policy's next
-            action.</p>
+        <p>The agent is still non-deterministic. But the space it searches through is one you designed.</p>
     </section>
 
     <section id="principles">
         <h2>III. Design Principles</h2>
-        <p>Each principle is a direct consequence of the theoretical foundations. They are stated as design constraints
-            every component must satisfy.</p>
 
         <div class="principle">
             <h4>Principle 1: The environment is the product</h4>
-            <p>The trained policy is opaque and approximately the same for everyone (Claude, GPT, Gemini). The
-                only variables under your control are the context window and the environment. The framework must make
-                environment design the primary activity. The agent is a parameter you pass in.</p>
+            <p>The model is roughly the same for everyone. The thing under your control is the environment you give
+                it: what it can see, what it can do, what counts as success, and what's physically impossible.
+                portlang makes environment design the primary activity. The agent is a parameter you pass in.</p>
         </div>
 
         <div class="principle">
-            <h4>Principle 2: Declare convergence criteria</h4>
-            <p>Imperative instructions ("do X then Y then Z") attempt to control the trajectory directly. But the
-                trajectory is non-deterministic. The framework must let developers declare what success looks like
-                (verifiers), what the agent can observe (environment), and what it cannot do (boundaries). The agent
-                finds the trajectory. You define the space it searches in.</p>
+            <h4>Principle 2: Define convergence, not instructions</h4>
+            <p>"Do X, then Y, then Z" is fragile when the trajectory is non-deterministic. Instead, declare what
+                success looks like (verifiers), and what the agent can and cannot do (boundary). The agent finds
+                its own path. You define the space it searches in.</p>
         </div>
 
         <div class="principle">
             <h4>Principle 3: Context is a finite resource</h4>
-            <p>The context window is the model's entire reality. Noise warps the distribution the model samples from.
-                Adding irrelevant content degrades performance even when relevant information is still present. The
-                framework must treat the context window as a finite resource with a hard ceiling. When the ceiling is
-                reached, the run ends. Compression is always lossy.</p>
+            <p>The context window is the model's entire reality. Noise degrades behavior even when useful
+                information is still present. portlang treats context as a hard resource with a ceiling. When it's
+                exhausted, the run ends. No silent compression. Compression is always lossy, and the framework
+                can't know which information matters.</p>
         </div>
 
         <div class="principle">
-            <h4>Principle 4: Boundaries are enforced topology</h4>
-            <p>Telling an agent "avoid X" through a prompt is a suggestion. Making X physically impossible through
-                permissions is a guarantee. RL-trained agents find and exploit any accessible path to reward. The
-                framework must enforce boundaries at the runtime level, making unauthorized trajectories structurally
-                impossible.</p>
+            <h4>Principle 4: Boundaries are enforced topology, not suggestions</h4>
+            <p>Telling an agent "don't modify the tests" through a prompt is advice. Setting
+                <code>allow_write = ["src/*.py"]</code> in a sandboxed container makes it structurally impossible.
+                These are categorically different guarantees. RL-trained models find any accessible path to reward;
+                the framework must make unauthorized paths inaccessible, not just discouraged.</p>
         </div>
 
         <div class="principle">
-            <h4>Principle 5: Feedback is continuous runtime signal</h4>
-            <p>Test results, linter output, and build signals that enter the context window reshape the agent's behavior
-                at every step. They are the inference-time equivalent of the RL training reward. The framework must make
-                feedback a first-class, continuous component of the execution loop.</p>
+            <h4>Principle 5: Feedback is runtime signal</h4>
+            <p>Test results, linter output, and shell checks that enter the context window at each step are the
+                inference-time equivalent of training reward. They steer the search in real time. Absent feedback,
+                the agent wanders and corrects late. Verifiers can trigger after every tool call, not just at
+                the end.</p>
         </div>
 
         <div class="principle">
-            <h4>Principle 6: Every run is a trajectory, and trajectories are data</h4>
-            <p>Agent behavior is non-deterministic. The same field definition may produce different trajectories on
-                different runs. Debugging agent failures requires inspecting the trajectory: what entered the context
-                window, when the field shifted, where the search diverged. The framework must record complete
-                trajectories as first-class, replayable, diffable data structures.</p>
-        </div>
-
-        <div class="principle">
-            <h4>Principle 7: The framework learns from its own runs</h4>
-            <p>Many properties of a good field definition cannot be determined before runtime. Which tools get used?
-                Which observations cause divergence? How many tokens does a typical run consume? The framework must
-                accumulate trajectory data across runs and surface patterns that help the developer refine field
-                definitions over time. The framework counts, correlates, and reports. The developer decides what to
-                change.</p>
+            <h4>Principle 6: Every run is a dataset</h4>
+            <p>Agent behavior is non-deterministic: the same field can produce different trajectories on different
+                runs. Trajectories are structured event logs: what was called, when, at what token cost, with what
+                outcome. They're queryable, replayable, and the input to improvement. The framework accumulates
+                this data; you decide what to change.</p>
         </div>
     </section>
 
     <section id="primitives">
-        <h2>IV. The Six Primitives</h2>
-        <p>Every concept in the framework reduces to one of six primitives. Each primitive corresponds to a variable in
-            the theoretical model that the developer can control.</p>
+        <h2>IV. The Primitives</h2>
+        <p>Every concept in portlang reduces to one of six things.</p>
 
         <div class="primitive-box">
             <h4>Field</h4>
-            <p>The field is the top-level primitive. Like a function, it is a self-contained unit of work with
-                declared inputs, outputs, and constraints. A field is defined in configuration and executed by the
-                runtime.</p>
-            <p>Fields are the unit of composition. A pipeline is a sequence of fields. Parallel execution is multiple
-                independent fields. The field boundary is the isolation boundary. Context does not leak between fields
-                unless explicitly passed.</p>
+            <p>The top-level unit. A field is a self-contained unit of work: model, goal, tools, constraints, and
+                success criteria in one file. Like a function: declared inputs and outputs, isolated execution.
+                Fields are the unit of composition: a pipeline is a sequence of fields, each with a fresh
+                context window.</p>
         </div>
 
         <div class="primitive-box">
             <h4>Environment</h4>
-            <p>The environment is the territory the agent operates in, defined as an immutable snapshot with allowed
-                mutation channels.</p>
-            <p>An environment specifies a filesystem snapshot (commit, container image, or file listing), a tool
-                manifest (the set of tools that exist), and a network policy (what external resources are reachable).
-                The agent cannot observe or act on anything outside the environment.</p>
-            <p>Environments are versioned and composable. A clean environment produces a clean context window. A noisy
-                environment produces drift.</p>
+            <p>The territory the agent operates in. A filesystem root (mounted into an isolated container), a set
+                of installed packages, network policy, and any MCP servers or custom tools. The agent cannot
+                observe or act on anything outside the environment.</p>
         </div>
 
         <div class="primitive-box">
             <h4>Verifier</h4>
-            <p>A verifier is a function that evaluates current state and returns a signal: pass, fail, or numeric score.
-                Verifier output enters the context window automatically.</p>
-            <p>Verifiers serve two purposes: they provide the runtime reward signal (the inference-time equivalent of RL
-                training reward), and they define correctness. Strong, unambiguous feedback guides the search. Weak or
-                absent feedback produces blind wandering.</p>
-        </div>
-
-        <div class="primitive-box">
-            <h4>Context Policy</h4>
-            <p>The context policy has two components: a token budget (hard ceiling on context window size) and a
-                re-observation schedule (commands that run before each step to keep context fresh).</p>
-            <p>When the token budget is reached, the run terminates. Automatic summarization and compression are
-                disabled by default.
-                Re-observations keep the context accurate but consume budget.</p>
+            <p>A shell command (or schema check) that defines success. Pass = exit 0; fail = nonzero. On failure,
+                the output enters the context window as feedback. Verifiers can trigger on stop, after every step,
+                or after specific tool calls. Multiple verifiers together define the full convergence criterion.</p>
         </div>
 
         <div class="primitive-box">
             <h4>Boundary</h4>
-            <p>A boundary defines the hard walls of the search space: filesystem write permissions, tool restrictions,
-                network egress policy, cost limits, and step limits.</p>
-            <p>Boundaries are enforced by the sandbox. For structured tool calls, the runtime inspects
-                and rejects violations. For shell execution, enforcement happens at OS level through container
-                isolation.</p>
+            <p>Hard limits enforced by the container sandbox: which paths can be written (glob patterns), network
+                allow/deny, maximum tokens, maximum cost, maximum steps. These are not prompt-level instructions.
+                Violations are rejected at runtime. The agent cannot exceed them by trying harder.</p>
         </div>
 
         <div class="primitive-box">
             <h4>Trajectory</h4>
-            <p>A trajectory is the structured event log of an agent's execution. Each entry records the step number,
-                action taken, environment response, verifier results, and token count.</p>
-            <p>Trajectories are structured data with typed fields, making them queryable,
-                replayable, and diffable. They are the input to the adaptation system.</p>
+            <p>The complete structured event log of a run: every step, tool call, verifier result, token cost,
+                and duration. Stored as JSON. Replayable interactively with <code>portlang view trajectory</code>.
+                The raw material for convergence measurement and reflection.</p>
+        </div>
+
+        <div class="primitive-box">
+            <h4>Reflect</h4>
+            <p>An analysis pass that reads a trajectory and produces prioritized recommendations for improving
+                the field definition: fewer steps, lower cost, better reliability. Reflect is itself a portlang
+                field with custom tools for trajectory access. Run automatically after each run with
+                <code>--auto-reflect</code>, or on any past trajectory with
+                <code>portlang reflect &lt;id&gt;</code>.</p>
         </div>
     </section>
 
-    <section id="configuration">
-        <h2>V. The Configuration Layer</h2>
-        <p>A field is defined in a configuration file called <code>field.toml</code>. The configuration is
-            human-readable, diff-friendly, and has clear structure-to-semantics mapping.</p>
+    <section id="practice">
+        <h2>V. A Field in Practice</h2>
 
-        <h3>Complete Example: Scoped Bug Fix</h3>
-        <pre><code>[field]
-name = "fix-jwt-validation"
-model = "claude-sonnet-4-5"
-prompt = """
+        <p>A field is a <code>.field</code> file, a TOML configuration that fully specifies a task. Here's a
+            real example: finding and fixing a bug without touching the test suite.</p>
+
+        <pre><code>name = "fix-jwt-validation"
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.2
+
+[prompt]
+goal = """
 Fix the JWT expiration validation bug in auth.py.
-The exp claim is being compared as a string instead of
-an integer. Only modify auth.py and the test file.
+The exp claim is being compared as a string instead of an integer.
 """
+# Inject current diff before every step — agent always knows what changed
+re_observation = ["git diff --stat"]
 
 [environment]
-snapshot = "git:HEAD"
-tools = ["read", "write", "bash"]
-ephemeral = true
-
-[[verifier]]
-name = "tests-pass"
-run = "pytest tests/test_auth.py -x"
-when = "after_each_write"
-
-[[verifier]]
-name = "scope-guard"
-run = "git diff --name-only | grep -qvE '^(auth\\.py|tests/)' && exit 1 || exit 0"
-when = "before_terminal"
-
-[context]
-budget = 32_000
-re_observe = ["git diff --stat"]
+root = "./workspace"
 
 [boundary]
-fs_write = ["auth.py", "tests/**"]
-network = "deny_all"
-max_steps = 30
-max_cost = "$2.00"
-sandbox = "container"</code></pre>
+allow_write = ["auth.py", "tests/**"]  # sandbox-enforced: cannot write elsewhere
+network = "deny"
+max_tokens = 40000
+max_steps = 20
+max_cost = "$0.50"
 
-        <p>Note the structure. The developer declared a search space: what the agent can see (environment), what success
-            looks like (verifiers), how much
-            context is available (budget), and what is physically impossible (boundary). The runtime executes the
-            search.</p>
-    </section>
+# Run tests after every file write — catch regressions immediately
+[[verifier]]
+name = "tests-pass"
+command = "pytest tests/test_auth.py -q"
+trigger = "always"
+description = "Tests must pass after every write"
 
-    <section id="runtime">
-        <h2>VI. The Runtime</h2>
-        <p>The runtime is the execution engine that turns a field definition into a trajectory.</p>
+# Confirm scope at the end — only auth.py and tests/ should be touched
+[[verifier]]
+name = "scope-guard"
+command = "git diff --name-only | grep -qvE '^(auth\\.py|tests/)' && exit 1 || exit 0"
+trigger = "on_stop"
+description = "Only auth.py and tests/ should be modified"</code></pre>
 
-        <h3>Sandbox Architecture</h3>
-        <p>Each field executes in an isolated sandbox constructed from the environment definition. The filesystem
-            snapshot is mounted (read-only base with copy-on-write layer for mutations), tool manifest determines which
-            handlers are registered, and network policy is enforced at the namespace level.</p>
+        <p>What this field defines: what the agent can see, what it can write, when it gets feedback, and what
+            "done" means. What it does not define: which files to read first, how to find the bug, what order to
+            make changes. The agent decides that. You defined the space.</p>
 
-        <p>The sandbox translates boundaries into topology. For structured tool calls (read, write), the runtime
-            inspects
-            parameters and rejects violations. For bash, enforcement happens at OS level: the container has no network
-            interface if <code>network = "deny_all"</code>, and the filesystem mount is read-only except for allowed
-            paths.</p>
+        <p>The <code>re_observation</code> field deserves attention. The diff is injected before every step,
+            not as a one-time prompt but as a live refresh. The agent always sees the current state of the
+            workspace, not the state it was in three steps ago. This keeps the context accurate as changes
+            accumulate.</p>
 
-        <h3>The Agent Loop</h3>
-        <p>The agent loop is deliberately simple:</p>
-        <ol>
-            <li>Execute scheduled re-observations and inject into context. Check token budget.</li>
-            <li>Invoke policy with current context. Receive action (text, tool call, or stop).</li>
-            <li>Check action against boundary. If violation, reject and inject rejection into context.</li>
-            <li>Dispatch action to sandbox. Receive environment response.</li>
-            <li>Dispatch triggered verifiers. Inject results into context.</li>
-            <li>Check token budget. If exceeded, terminate.</li>
-            <li>Record step to trajectory log.</li>
-            <li>Check termination conditions. If met, end. Otherwise, return to step 1.</li>
-        </ol>
+        <p>The two verifiers together close an obvious escape hatch: tests pass, and the test files themselves
+            weren't modified to make them pass. Neither check alone is sufficient.</p>
 
-        <p>The simplicity is intentional. The loop is plumbing. The design work is in the field definition.</p>
-    </section>
+        <h3>Structural checks</h3>
 
-    <section id="checks">
-        <h2>VII. Structural Checks</h2>
-        <p>Before execution, the framework runs structural checks on the field definition (<code>portlang check</code>).
-            These verify properties that can be checked without inference or natural language understanding.</p>
-
-        <h3>What Can Be Checked Statically</h3>
-        <ul>
-            <li><strong>Uncovered mutation paths:</strong> If boundary allows writes that no verifier observes, the
-                agent can mutate state with no feedback. Checker requires every writable path covered by at least one
-                verifier.</li>
-            <li><strong>Unreachable verifiers:</strong> If a verifier references a file or tool outside the environment,
-                it can never produce signal.</li>
-            <li><strong>Budget arithmetic:</strong> Checker estimates re-observation cost (tokens per observation × max
-                steps) and warns if this exceeds significant fraction of budget.</li>
-            <li><strong>Boundary completeness:</strong> If boundary specifies filesystem restrictions but omits network
-                policy, or includes bash without container enforcement, checker warns.</li>
-            <li><strong>Tool count:</strong> If tool manifest exceeds threshold, checker warns that irrelevant tools
-                degrade selection accuracy.</li>
-        </ul>
-
-        <h3>What Cannot Be Checked Statically</h3>
-        <ul>
-            <li><strong>Prompt-tool relevance:</strong> Determining whether a tool is relevant to a prompt requires
-                understanding the prompt. That requires inference.</li>
-            <li><strong>Optimal context budget:</strong> The right budget depends on task, model, and environment.
-                No static analysis can determine it before running.</li>
-            <li><strong>Verifier adequacy:</strong> Whether verifiers prevent satisfying the proxy without satisfying
-                intent is a semantic question. Static checks cannot answer it.</li>
-        </ul>
+        <p><code>portlang check field.field</code> validates a field before running it. It catches things like
+            writable paths with no verifier coverage (mutations with no feedback signal), verifiers that reference
+            files outside the environment, and re-observation budgets that would consume most of the token ceiling
+            before the agent does any work. It runs fast, costs nothing, and prevents a class of silent failures.</p>
     </section>
 
     <section id="observability">
-        <h2>VIII. Observability, Adaptation & Debugging</h2>
-        <p>Agent systems are non-deterministic. The same field can produce success on one run and divergence on the
-            next. Traditional debugging does not transfer. You need to reason about distributions of trajectories.</p>
+        <h2>VI. Observability & Reflection</h2>
 
-        <h3>Trajectory Replay</h3>
-        <p>Every run produces a trajectory (the structured event log). The <code>portlang replay</code> command loads a
-            trajectory and lets you step through it. At each step, see the action taken, environment response, verifier
-            results, and token count. The context window at any step can be reconstructed.</p>
+        <p>Agent systems are non-deterministic. The same field can succeed on one run and fail on the next.
+            Traditional debugging (add a print statement, rerun) doesn't transfer. You need to reason about
+            what actually happened, step by step, and across many runs.</p>
 
-        <p>Replay makes visible the phenomena that cause drift: noisy tool output at step 5 consuming 3,000 tokens,
-            re-observation returning unexpected data, ambiguous verifier signal misinterpreted.</p>
+        <pre><code>portlang view trajectory &lt;id&gt;          # step through any run interactively
+portlang converge field.field -n 20    # run 20 times, report convergence rate
+portlang run field.field --auto-reflect  # reflect immediately after each run
+portlang reflect &lt;trajectory-id&gt;       # analyze any past run</code></pre>
 
-        <h3>Trajectory Comparison</h3>
-        <p>The <code>portlang diff</code> command compares two trajectories from the same field definition at structural
-            level. It aligns by action type and identifies the first point of structural divergence.</p>
+        <h3>Trajectories</h3>
 
-        <p>This is structural comparison. The framework compares action types, target paths, tool names,
-            and verifier results. Most agent failures have structural causes: a different file was read, a different
-            tool was called, a verifier triggered at a different point.</p>
+        <p><code>portlang view trajectory</code> loads a run and lets you step through it interactively. At each
+            step: what action was taken, what tool was called, what the response was, how many tokens were consumed,
+            which verifiers ran and whether they passed. The context window at any step can be reconstructed.
+            This makes visible the phenomena that cause drift: noisy tool output consuming thousands of tokens,
+            a re-observation returning unexpected data, an ambiguous verifier result misinterpreted.</p>
 
-        <h3>Adaptation Through Trajectory Data</h3>
-        <p>The framework accumulates trajectory data across runs. Over time, patterns emerge. The framework surfaces
-            these as reports. The developer decides.</p>
+        <h3>Convergence measurement</h3>
 
-        <ul>
-            <li><strong>Tool usage patterns:</strong> After 20 runs, report that "deploy" tool was never invoked. After
-                50 runs, report that "database" tool correlates with divergence.</li>
-            <li><strong>Budget utilization:</strong> Report distribution of token consumption: median, p90, p99,
-                frequency of budget-exhaustion terminations.</li>
-            <li><strong>Divergence clustering:</strong> "60% of failures diverge at step 5-8, and 80% involve reading
-                *.log files" (a histogram over trajectory events).</li>
-            <li><strong>Verifier signal quality:</strong> Track correlation between verifier results and trajectory
-                outcomes. If a verifier passes on 95% of steps across all runs, it provides almost no signal.</li>
-        </ul>
+        <p><code>portlang converge -n N</code> runs a field N times and reports the convergence rate: what
+            fraction of runs pass all verifiers. This is the right reliability metric for non-deterministic
+            systems. Not "did it work this time" but "what's the success rate across many runs." After reflecting
+            on failures and adjusting the field, run again. The convergence rate tells you whether the change
+            helped.</p>
 
-        <p>This requires counting, correlating, and presenting. The framework is a query engine over
-            trajectory data. It shows what happened. The developer decides what to change.</p>
+        <h3>Reflection</h3>
 
-        <h3>Convergence Rate</h3>
-        <p>The <code>portlang bench</code> command runs a field N times and reports the convergence rate: what fraction
-            of runs pass all verifiers. It also reports average trajectory length, cost distribution, and divergence
-            clusters.</p>
+        <p><code>portlang reflect</code> runs an analysis agent that reads a trajectory and produces prioritized
+            recommendations grounded in the specific steps your agent took, not generic advice.</p>
 
-        <p>Running a field 100 times is expensive. The framework is honest about this. For expensive models or
-            long-running fields, use cheaper proxies first. Run 5 times, check for obvious issues, adjust, then run
-            larger benchmark.</p>
-    </section>
+        <p>Here's an example from a real run. The agent was given a calculator tool with a Python function named
+            <code>execute</code>. The goal said "use the calculator." The agent searched for "calculator," got
+            nothing, guessed the exact tool name, and proceeded. Reflect caught it:</p>
 
-    <section id="composition">
-        <h2>IX. Composition & Multi-Agent</h2>
-        <p>Multi-agent systems in current frameworks typically involve agents sending messages, accumulating context
-            across boundaries. The theoretical model predicts this degrades: each agent's output enters others' context
-            windows as tokens, compounding noise. DeepMind tested 180 agent configurations and found sequential
-            multi-agent tasks degraded 39-70% versus single agent.</p>
+        <blockquote>
+            <strong>HIGH</strong>: The agent called ToolSearch twice before finding the calculator tool.
+            Adding 'calculator', 'math', 'arithmetic' to the tool description eliminates both steps.
+            Steps 1–2 are pure tool-hunting waste.
+        </blockquote>
 
-        <p>The framework takes a different approach: <strong>composition through fields and artifacts.</strong></p>
+        <blockquote>
+            <strong>HIGH</strong>: Step 7 consumes 48,529 tokens on a narration step with no useful output.
+            Add <code>output_schema</code> to enforce a concise structured stop message.
+        </blockquote>
 
-        <h3>Pipelines</h3>
-        <p>A pipeline is a sequence of fields connected by artifacts. Each stage is a self-contained field with its own
-            environment, verifiers, context policy, and boundary. The output of one stage is a file (artifact) that
-            becomes input to the next stage's environment.</p>
+        <blockquote>
+            <strong>MED</strong>: Add a verifier with <code>trigger = "on_tool:write"</code> to catch errors
+            immediately rather than only at stop.
+        </blockquote>
 
-        <p>Each field in a pipeline gets a fresh context window. Noise from stage 1 stays in stage 1.
-            Only the artifact passes forward. This is the structural equivalent of process isolation.</p>
+        <p>The fix to the first finding was one word: renaming the Python function from <code>execute</code>
+            to <code>calculate</code>. portlang auto-extracts the function name as the tool name, so the rename
+            propagated automatically. This is what environment-first means in practice: the agent's behavior is a
+            function of the environment you define, and reflect shows you which knobs to turn.</p>
 
-        <h3>Parallel Execution</h3>
-        <p>Independent fields can run in parallel. Parallel fields are the natural pattern for tasks that decompose into
-            independent sub-problems. Example: compiling different files where each compilation is an independent field
-            with
-            a clear verifier.</p>
-
-        <p>Parallel fields share nothing by default. If they need shared artifacts, it happens through explicit shared
-            volumes
-            with appropriate boundary constraints.</p>
-
-        <h3>Gating</h3>
-        <p>A gate is a verifier that blocks pipeline progression. It sits between stages and requires all verifiers to
-            pass before the pipeline advances. Gates ensure artifacts meet quality criteria, preventing degraded output
-            from contaminating the next field's search space.</p>
+        <p>Reflect is itself a portlang field, with custom tools for loading trajectory data and submitting
+            structured analysis. See
+            <a href="https://github.com/portofcontext/portlang/blob/main/crates/portlang-cli/src/reflect_tools/reflect.field"
+                style="color: var(--harbor-blue);">reflect.field</a>.</p>
     </section>
 
     <section id="limitations">
-        <h2>X. What This Does Not Solve</h2>
+        <h2>VII. What This Does Not Solve</h2>
 
         <div class="principle">
             <h4>Proxy mismatch is inherent</h4>
-            <p>Verifiers are reward proxies. The gap between "all verifiers pass" and "the result is correct" will
-                always exist in any reward-based system. The framework makes this gap visible and auditable. It
-                cannot close it. Reviewing agent output remains necessary.</p>
+            <p>Verifiers are reward proxies. "All tests pass" and "the code is correct" are not the same thing.
+                The framework makes this gap explicit and auditable: you can see exactly which verifiers ran and
+                what they checked. It cannot close the gap. Reviewing agent output remains necessary.</p>
         </div>
 
         <div class="principle">
             <h4>Policy opacity remains</h4>
-            <p>The trained policy is a black box. The framework gives you every lever except the one inside the model.
-                When two signals in the context window conflict, the policy resolves them according to its training. How
-                it resolves conflicts remains partially opaque.</p>
+            <p>The trained model is a black box. When two signals in the context window conflict, the model
+                resolves them according to its training, not according to your intent, and not transparently.
+                The framework gives you every lever except the one inside the model.</p>
         </div>
 
         <div class="principle">
-            <h4>Complete safety requires more</h4>
-            <p>Boundaries eliminate trajectories, which contributes to safety. Complete safety requires formal
-                verification, adversarial testing, and runtime monitoring beyond what a developer framework provides.
-                The framework is a necessary component of safe agent deployment.</p>
+            <h4>Tasks without clear verifiers are harder</h4>
+            <p>The framework excels when success is concrete: tests pass, output matches a schema, a file contains
+                specific content. For creative work, open-ended research, or judgment calls, verifiers are
+                unavoidably weak. Weak verifiers mean weak runtime feedback. Weak feedback means poorly guided
+                search.</p>
         </div>
 
         <div class="principle">
-            <h4>Novel tasks remain hard</h4>
-            <p>The framework works well on tasks with clear verifiers: coding, data transformation, structured output
-                generation. Tasks where success is hard to specify (creative work, open-ended research, judgment calls)
-                have weak verifiers. Weak verifiers produce weak runtime reward signals. Weak signals produce poorly
-                guided search.</p>
-        </div>
-
-        <div class="principle">
-            <h4>Coordination at scale is unsolved</h4>
-            <p>Pipeline and parallel execution patterns handle simple composition. Complex multi-agent coordination
-                (dynamic task allocation, negotiation, adaptive decomposition) is not yet solved here. The framework
-                provides isolation primitives that prevent the worst failure modes. It does not solve coordination.</p>
-        </div>
-
-        <div class="principle">
-            <h4>Context management is lossy by nature</h4>
-            <p>The framework imposes a hard token budget. When exhausted, the run terminates. Developers who want
-                summarization or pruning can build it. The framework treats lossless context compression as
-                impossible. Any compression loses information, and the framework cannot know which information
-                matters.</p>
+            <h4>Context management is lossy</h4>
+            <p>The framework imposes a hard token ceiling. When exhausted, the run ends. Developers who want
+                summarization or pruning can build it into their field. The framework will not do it silently.
+                Any compression loses information, and the framework cannot know which information matters.</p>
         </div>
 
         <div class="divider">• • •</div>
 
-        <p>The purpose of this document is to establish a foundation: a framework that takes seriously what we know
-            about how these systems work and builds engineering discipline around it.
+        <p>The purpose of this document is to establish a foundation: a framework that takes seriously what we
+            know about how these systems work and builds engineering discipline around it.</p>
     </section>
 
     <footer>
-        <p>portlang — An environment-first agent framework</p>
-        <p>When the search fails, sharpen the space.</p>
+        <h1 style="font-size: 1.5rem; margin-bottom: 0.25rem;">portlang</h1>
+        <div class="subtitle" style="font-size: 1rem; margin-bottom: 1rem;">An Environment-First Agent Framework</div>
+        <div style="margin-bottom: 1rem;">
+            <a href="https://portofcontext.com">
+                <img src="https://img.shields.io/badge/MADE%20BY-Port%20of%20Context-1e40af.svg?style=for-the-badge&labelColor=0c4a6e"
+                    alt="Made by Port of Context">
+            </a>
+        </div>
+        <div class="meta">
+            <a href="https://github.com/portofcontext/portlang"
+                style="color: var(--harbor-blue); text-decoration: none;">github.com/portofcontext/portlang</a>
+        </div>
     </footer>
 </body>
 
