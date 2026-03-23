@@ -134,7 +134,7 @@ Run a field
    Files collected are those matching `collect` patterns in `[boundary]` (defaults to all `allow_write` patterns when `collect` is not set).
 * `--json` — Emit a single JSON object to stdout instead of human-readable output.
 
-   The JSON includes run metadata, `structured_output` (if `output_schema` was set), and `artifacts` with inline file contents. Binary files are omitted from `artifacts` but still copied when `--output-dir` is set.
+   The JSON includes run metadata, `structured_output` (if `output_schema` was set), and `artifacts` with inline file contents (up to 512 KB per file / 2 MB total).
 
 
 
