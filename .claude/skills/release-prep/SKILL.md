@@ -54,6 +54,12 @@ Note any new commands, changed flags, or removed options — this informs the sk
 
 Edit `editors/vscode/package.json`: set `"version"` to match `[workspace.package].version` from `Cargo.toml`.
 
+Then run `npm install` in the extension directory to sync the lockfile:
+
+```bash
+cd editors/vscode && npm install
+```
+
 **3b. portlang skill**
 
 The skill version in `../skills/portlang/SKILL.md` (`metadata.version`) follows its own semver. Choose the bump based on what changed since the last portlang release:
@@ -119,6 +125,7 @@ Documentation
 Version bumps
 [x] Cargo.toml [workspace.package].version = <VERSION>
 [x] editors/vscode/package.json version = <VERSION>
+[x] editors/vscode/package-lock.json synced (npm install)
 [x] ../skills/portlang/SKILL.md metadata.version bumped
 
 Skills repo
@@ -129,6 +136,8 @@ Skills repo
 Release
 [ ] ./release.sh <VERSION>
 [ ] vscode-build CI completes and .vsix attached to GitHub Release (automatic)
+    To watch the build from your terminal (blocks until done):
+    gh run watch $(gh run list --workflow=vscode-build.yml --limit 1 --json databaseId -q '.[0].databaseId')
 [ ] .vsix uploaded to marketplace.visualstudio.com/manage (manual)
 [ ] ../skills pushed
 ```
