@@ -1,0 +1,63 @@
+name = "output-capture"
+description = "Demonstrates both output mechanisms: file artifacts (collect) and structured output (output_schema)"
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.0
+
+[prompt]
+goal = """
+Review the Python source files in src/ for security issues.
+
+Write a detailed markdown report to report.md covering each file and every
+issue found — include the file name, line number, issue type, and a brief
+explanation of the risk.
+
+Then call submit_output with a concise machine-readable summary.
+"""
+
+[environment]
+root = "./workspace"
+
+[boundary]
+network = "deny"
+allow_write = ["report.md"]
+collect = ["report.md"]     # deliver report.md via --output-dir or --json after the run
+max_tokens = 100000
+max_cost = "$1.00"
+max_steps = 15
+output_schema = """
+{
+  "type": "object",
+  "required": ["files_reviewed", "issues_found", "verdict"],
+  "properties": {
+    "files_reviewed": { "type": "integer", "minimum": 0 },
+    "issues_found":   { "type": "integer", "minimum": 0 },
+    "verdict": {
+      "type": "string",
+      "enum": ["clean", "issues_found"],
+      "description": "clean if no issues, issues_found otherwise"
+    },
+    "issue_types": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Short labels for each distinct issue type found"
+    }
+  }
+}
+"""
+
+# Verify the agent actually produced the report file
+[[verifier]]
+name = "report-exists"
+command = "test -f /workspace/report.md"
+
+# Verify structured output flags issues (the workspace has intentional bugs)
+[[verifier]]
+name = "issues-detected"
+type = "tool_call"
+trigger = "on_stop"
+tool = "submit_output"
+field = "/input/verdict"
+matches = "^issues_found$"
+description = "verdict must be issues_found — the source files contain intentional security bugs"

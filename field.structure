@@ -41,12 +41,16 @@ image = "custom:image"          # pre-built image (overrides anything in ^ on ^^
 
 [boundary]                      # optional, or boundary = "inherit" to pull from parent
 allow_write = ["*.txt", ...]    # glob patterns for writable paths; default: none
+collect = ["report.md", ...]    # optional; subset of allow_write to deliver to caller via --output-dir / --json
+                                # omit to deliver all allow_write files; set to [] to deliver nothing
 network = "deny" | "allow"      # default: allow
 max_tokens = 150000             # hard ceiling on total context tokens across entire run
 max_cost = "$2.00"              # hard ceiling on total cost
 max_steps = 30                  # hard ceiling on agent steps
 bash = true | false             # enable built-in bash tool; default: true (set false to restrict to basic filesystem tools only)
 output_schema = """{ ... }"""   # optional; JSON schema as a JSON string; multi-line TOML strings recommended
+                                # agent must call submit_output with matching JSON; captured in trajectory.structured_output
+                                # complements collect: use output_schema for typed structured payloads, collect for files
 
 tools = "inherit"               # optional; inherit [[tool]] list from parent instead of defining inline
 

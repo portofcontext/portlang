@@ -33,6 +33,14 @@ pub struct Boundary {
     /// Optional JSON schema for structured output validation.
     #[serde(default)]
     pub output_schema: Option<serde_json::Value>,
+
+    /// Glob patterns (relative to workspace root) identifying files to collect
+    /// and deliver to the caller after the run. Subset of `allow_write`.
+    ///
+    /// `None` = collect everything matching `allow_write` (default, backward-compatible).
+    /// `Some([])` = collect nothing.
+    #[serde(default)]
+    pub collect: Option<Vec<String>>,
 }
 
 fn default_true() -> bool {
@@ -49,6 +57,7 @@ impl Default for Boundary {
             max_steps: None,
             bash: true,
             output_schema: None,
+            collect: None,
         }
     }
 }

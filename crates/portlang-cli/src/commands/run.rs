@@ -8,7 +8,28 @@ use portlang_provider_openrouter::OpenRouterProvider;
 use portlang_runner_claudecode::run_field_with_claude_code;
 use portlang_runtime::{run_field, ModelProvider};
 use portlang_trajectory::{FilesystemStore, TrajectoryStore};
+use serde::Serialize;
 use std::path::PathBuf;
+
+use crate::output_collector::{
+    collect_artifacts, copy_artifacts_to_dir, effective_collect_patterns, CollectedArtifact,
+};
+
+/// Machine-readable result emitted to stdout when `--json` is passed.
+#[derive(Serialize)]
+struct RunResult {
+    run_id: String,
+    field: String,
+    outcome: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    structured_output: Option<serde_json::Value>,
+    artifacts: Vec<CollectedArtifact>,
+    cost: String,
+    tokens: u64,
+    steps: usize,
+    duration_ms: u64,
+    trajectory_id: String,
+}
 
 pub async fn run_command(
     field_path: PathBuf,
@@ -18,6 +39,8 @@ pub async fn run_command(
     dry_run: bool,
     runs: usize,
     auto_reflect: bool,
+    output_dir: Option<PathBuf>,
+    json_output: bool,
 ) -> Result<()> {
     if dry_run {
         return run_dry(field_path, parent_field, ctx);
@@ -25,7 +48,16 @@ pub async fn run_command(
     if runs > 1 {
         return run_multi(field_path, runs, parent_field, ctx, runner).await;
     }
-    run_single(field_path, parent_field, ctx, runner, auto_reflect).await
+    run_single(
+        field_path,
+        parent_field,
+        ctx,
+        runner,
+        auto_reflect,
+        output_dir,
+        json_output,
+    )
+    .await
 }
 
 fn run_dry(field_path: PathBuf, parent_field: Option<PathBuf>, ctx: RuntimeContext) -> Result<()> {
@@ -104,59 +136,79 @@ async fn run_single(
     ctx: RuntimeContext,
     runner: String,
     auto_reflect: bool,
+    output_dir: Option<PathBuf>,
+    json_output: bool,
 ) -> Result<()> {
-    println!("Running field: {}", field_path.display());
+    if !json_output {
+        println!("Running field: {}", field_path.display());
+    }
 
     let parent = resolve_parent_config(&field_path, parent_field.as_ref())?;
     let field = parse_field_with_parent(&field_path, parent.as_ref())?;
     let mut field = apply_runtime_context(field, &ctx)?;
     field.verifiers.retain(|v| !v.eval_only);
-    println!("Field: {}", field.name);
 
-    if let Some(description) = &field.description {
-        println!("Description: {}", description);
+    if !json_output {
+        println!("Field: {}", field.name);
+        if let Some(description) = &field.description {
+            println!("Description: {}", description);
+        }
+        println!("Model: {}", field.model.name);
+        println!("Goal: {}", field.prompt.goal);
+        println!("Runner: {}", runner);
+        println!();
     }
 
-    println!("Model: {}", field.model.name);
-    println!("Goal: {}", field.prompt.goal);
-    println!("Runner: {}", runner);
-    println!();
+    // Determine collect patterns before moving `field` into the runner
+    let workspace_root = field.environment.root.clone();
+    let collect_patterns =
+        effective_collect_patterns(&field.boundary.allow_write, &field.boundary.collect);
 
-    let progress = ProgressBar::new_spinner();
-    progress.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.green} {msg}")
-            .unwrap(),
-    );
-    crate::progress::set_status("");
-    progress.enable_steady_tick(std::time::Duration::from_millis(100));
-    // Drive spinner message from tracing events via the global status.
-    let pb = progress.clone();
-    tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
-            let msg = crate::progress::get_status();
-            if !msg.is_empty() {
-                pb.set_message(msg);
+    let progress = if !json_output {
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.green} {msg}")
+                .unwrap(),
+        );
+        crate::progress::set_status("");
+        pb.enable_steady_tick(std::time::Duration::from_millis(100));
+        let pb2 = pb.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+                let msg = crate::progress::get_status();
+                if !msg.is_empty() {
+                    pb2.set_message(msg);
+                }
             }
-        }
-    });
+        });
+        Some(pb)
+    } else {
+        None
+    };
 
     let trajectory = match runner.as_str() {
         "claude-code" => {
-            println!("Using Claude Code runner");
+            if !json_output {
+                println!("Using Claude Code runner");
+            }
             run_field_with_claude_code(&field, &ctx).await?
         }
         _ => {
             let provider: Box<dyn ModelProvider> = if field.model.name.contains('/') {
-                println!("Using OpenRouter provider");
+                if !json_output {
+                    println!("Using OpenRouter provider");
+                }
                 let mut p = OpenRouterProvider::from_env(&field.model.name)?;
                 if let Some(temp) = field.model.temperature {
                     p = p.with_temperature(temp);
                 }
                 Box::new(p)
             } else {
-                println!("Using Anthropic provider");
+                if !json_output {
+                    println!("Using Anthropic provider");
+                }
                 let mut p = AnthropicProvider::from_env(&field.model.name)?;
                 if let Some(temp) = field.model.temperature {
                     p = p.with_temperature(temp);
@@ -167,8 +219,75 @@ async fn run_single(
         }
     };
 
-    progress.finish_and_clear();
+    if let Some(pb) = progress {
+        pb.finish_and_clear();
+    }
 
+    // Save trajectory
+    let store = FilesystemStore::new()?;
+    store.save(&trajectory)?;
+
+    // Collect artifacts from workspace
+    let workspace_path = std::path::Path::new(&workspace_root);
+    let artifacts = if !collect_patterns.is_empty() {
+        match collect_artifacts(workspace_path, &collect_patterns) {
+            Ok(a) => a,
+            Err(e) => {
+                tracing::warn!("Artifact collection failed: {}", e);
+                vec![]
+            }
+        }
+    } else {
+        vec![]
+    };
+
+    // Copy to --output-dir if requested
+    if let Some(ref out_dir) = output_dir {
+        if !artifacts.is_empty() {
+            copy_artifacts_to_dir(&artifacts, workspace_path, out_dir)?;
+        } else {
+            std::fs::create_dir_all(out_dir)?;
+        }
+    }
+
+    if json_output {
+        let duration_ms = trajectory
+            .ended_at
+            .map(|e| (e - trajectory.started_at).num_milliseconds() as u64)
+            .unwrap_or(0);
+
+        let result = RunResult {
+            run_id: trajectory
+                .id
+                .filename()
+                .trim_end_matches(".json")
+                .to_string(),
+            field: trajectory.field_name.clone(),
+            outcome: trajectory
+                .outcome
+                .as_ref()
+                .map(|o| o.description().to_string())
+                .unwrap_or_default(),
+            structured_output: trajectory.structured_output.clone(),
+            artifacts: artifacts
+                .into_iter()
+                .filter(|a| a.content.is_some())
+                .collect(),
+            cost: format!("{}", trajectory.total_cost),
+            tokens: trajectory.total_tokens,
+            steps: trajectory.step_count(),
+            duration_ms,
+            trajectory_id: trajectory
+                .id
+                .filename()
+                .trim_end_matches(".json")
+                .to_string(),
+        };
+        println!("{}", serde_json::to_string_pretty(&result)?);
+        return Ok(());
+    }
+
+    // Human-readable output
     println!("\n{}", "=".repeat(60));
     println!("Run completed!");
     println!("{}", "=".repeat(60));
@@ -185,9 +304,6 @@ async fn run_single(
         trajectory.ended_at.unwrap() - trajectory.started_at
     );
 
-    let store = FilesystemStore::new()?;
-    store.save(&trajectory)?;
-
     println!("\nTrajectory saved:");
     println!("  Field: {}", trajectory.field_name);
     println!("  ID: {}", trajectory.id.filename());
@@ -196,6 +312,18 @@ async fn run_single(
         trajectory.field_name,
         trajectory.id.filename()
     );
+
+    if !artifacts.is_empty() {
+        println!("\nArtifacts ({}):", artifacts.len());
+        for a in &artifacts {
+            println!("  {}", a.path);
+        }
+        if let Some(ref out_dir) = output_dir {
+            println!("  → copied to {}", out_dir.display());
+        } else {
+            println!("  (in {})", workspace_root);
+        }
+    }
 
     if trajectory.outcome.as_ref().unwrap().is_success() {
         println!("\n✓ Field converged successfully!");

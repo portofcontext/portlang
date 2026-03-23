@@ -164,6 +164,16 @@ fn boundary_completions() -> Vec<CompletionItem> {
             "Enable/disable bash tool",
             "bash = ${1|true,false|}",
         ),
+        snippet(
+            "collect",
+            "Glob patterns for artifacts to deliver after the run",
+            "collect = [\"${1:output.md}\"]",
+        ),
+        snippet(
+            "output_schema",
+            "JSON schema for structured output (agent calls submit_output)",
+            "output_schema = '''\n{\n  \"type\": \"object\",\n  \"required\": [\"$1\"],\n  \"properties\": {\n    \"$1\": { \"type\": \"string\" }\n  }\n}\n'''",
+        ),
     ]
 }
 
@@ -173,7 +183,7 @@ fn verifier_completions() -> Vec<CompletionItem> {
         snippet(
             "type",
             "Verifier type",
-            "type = \"${1|shell,json,levenshtein,semantic,tool_call|}\"",
+            "type = \"${1|shell,levenshtein,semantic,tool_call|}\"",
         ),
         snippet(
             "command",

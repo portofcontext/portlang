@@ -132,23 +132,25 @@ fn hover_docs() -> HashMap<&'static str, &'static str> {
         "boundary.bash",
         "**boundary.bash**\n\nWhether the `bash` tool is available to the agent. Default: `true`.",
     );
+    m.insert("boundary.collect", "**boundary.collect**\n\nGlob patterns (relative to workspace root) for files to deliver to the caller after the run. Subset of `allow_write`.\n\nOmit to collect all `allow_write` files. Set to `[]` to collect nothing.\n\nRetrieve via `--output-dir PATH` (copies files) or `--json` (embeds contents in stdout).\n\nExample: `[\"report.md\", \"results/*.json\"]`");
+    m.insert("boundary.output_schema", "**boundary.output_schema**\n\nJSON Schema string the agent's structured output must conform to. The agent calls the built-in `submit_output` tool with a matching payload; portlang validates it automatically.\n\nUse `tool_call` verifiers to assert specific field values. Complements `collect`: use `output_schema` for typed structured payloads, `collect` for files.\n\nExample:\n```toml\noutput_schema = '''\n{\n  \"type\": \"object\",\n  \"required\": [\"status\"],\n  \"properties\": { \"status\": { \"type\": \"string\" } }\n}\n'''\n```");
 
     // [[verifier]]
     m.insert(
         "verifier.name",
         "**verifier.name** *(required)*\n\nIdentifier for this verifier, shown in run output.",
     );
-    m.insert("verifier.type", "**verifier.type**\n\nVerifier algorithm. Default: `\"shell\"`.\n\n- `shell` — exit 0 = pass\n- `json` — validates JSON structure against a schema\n- `levenshtein` — fuzzy text match\n- `semantic` — cosine similarity via embeddings\n- `tool_call` — inspects tool call arguments");
+    m.insert("verifier.type", "**verifier.type**\n\nVerifier algorithm. Default: `\"shell\"`.\n\n- `shell` — exit 0 = pass\n- `levenshtein` — fuzzy text match\n- `semantic` — cosine similarity via embeddings\n- `tool_call` — asserts a tool was called; optionally inspects its input/output");
     m.insert("verifier.command", "**verifier.command**\n\nShell command for `type = \"shell\"`. Exit 0 = pass, nonzero = fail.");
     m.insert("verifier.trigger", "**verifier.trigger**\n\nWhen to run this verifier.\n\n- `on_stop` *(default)* — run when agent finishes\n- `always` — run after every tool call\n- `on_tool:<tool_name>` — run after a specific tool is called");
     m.insert("verifier.description", "**verifier.description**\n\nFeedback injected into the agent's context window when this verifier fails.");
-    m.insert("verifier.file", "**verifier.file**\n\nWorkspace-relative path to the file to check (used by `json`, `levenshtein`, `semantic`).");
+    m.insert("verifier.file", "**verifier.file**\n\nWorkspace-relative path to the file to check (used by `levenshtein` and `semantic`). Omit to validate against `structured_output` directly.");
     m.insert(
         "verifier.expected",
         "**verifier.expected**\n\nReference string for `levenshtein` and `semantic` verifiers.",
     );
     m.insert("verifier.threshold", "**verifier.threshold**\n\nSimilarity threshold `[0.0–1.0]`. Default: `1.0` (levenshtein), `0.8` (semantic).");
-    m.insert("verifier.schema", "**verifier.schema**\n\nJSON Schema string for `type = \"json\"` verifiers.\n\nExample: `'{\"type\": \"object\", \"required\": [\"status\"]}'`");
+    m.insert("verifier.schema", "**verifier.schema**\n\n*(Unused — this field is no longer active. Use `output_schema` in `[boundary]` for JSON schema validation.)*");
     m.insert("verifier.eval_only", "**verifier.eval_only**\n\nWhen `true`, this verifier is skipped during `portlang run` and only executes during `portlang eval run`.\n\nUse for ground-truth comparisons (`levenshtein`, `semantic`) where the expected value is known and should not influence the agent or alter the outcome of development runs.");
 
     // [[tool]]

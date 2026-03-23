@@ -251,12 +251,14 @@ pub struct RawBoundary {
     pub bash: bool,
     #[serde(default, deserialize_with = "deserialize_output_schema")]
     pub output_schema: Option<serde_json::Value>,
+    #[serde(default)]
+    pub collect: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RawVerifier {
     pub name: String,
-    /// Algorithm type: "shell" (default), "levenshtein", "json", "semantic"
+    /// Algorithm type: "shell" (default), "levenshtein", "semantic", "tool_call"
     #[serde(rename = "type", default = "default_verifier_type")]
     pub verifier_type: String,
     // Shell fields

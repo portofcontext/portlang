@@ -103,6 +103,7 @@ portlang view eval <eval-id>
 | **Trajectory** | Complete event log of every step, tool call, cost, and outcome. Replayable and diffable. |
 | **Eval** | Batch run of multiple fields with a persistent ID, resumable on failure |
 | **Skills** | Prompt packs loaded into the agent's context from local files, GitHub repos, or ClawHub |
+| **Output** | File artifacts declared via `collect` in `[boundary]`, delivered via `--output-dir` or embedded in `--json` stdout |
 
 ### Skills
 
@@ -123,6 +124,28 @@ source = "clawhub:name"                # ClawHub registry
 ```
 
 You can reference a skill in the goal with `$slug` — portlang detects invocations and records them in the trajectory. See [examples/07-skills/](examples/07-skills/).
+
+### Output Collection
+
+Declare which files the agent produces with `collect` in `[boundary]`. These are delivered to the caller after the run — separate from write permission (`allow_write`):
+
+```toml
+[boundary]
+allow_write = ["report.md", "results/*.json", "scratch/*.tmp"]
+collect = ["report.md", "results/*.json"]   # omit scratch files
+```
+
+If `collect` is not set, all `allow_write` files are collected. Set `collect = []` to collect nothing.
+
+Retrieve outputs after a run:
+
+```bash
+portlang run field.field --output-dir ./results/    # copy artifacts to ./results/
+portlang run field.field --json                     # machine-readable JSON on stdout
+portlang run field.field --json | jq .artifacts     # pipe to jq
+```
+
+`--json` embeds both `artifacts` (file contents, up to 512 KB/file) and `structured_output` (from `output_schema`) in one JSON object — the building block for a future HTTP API.
 
 ## Security
 

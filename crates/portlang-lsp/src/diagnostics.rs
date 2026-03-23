@@ -107,11 +107,11 @@ fn validate_raw(raw: &RawField) -> Vec<Diagnostic> {
     }
 
     // Validate verifier types and required fields
-    let valid_verifier_types = ["shell", "json", "levenshtein", "semantic", "tool_call"];
+    let valid_verifier_types = ["shell", "levenshtein", "semantic", "tool_call"];
     for v in &raw.verifier {
         if !valid_verifier_types.contains(&v.verifier_type.as_str()) {
             diags.push(doc_diagnostic(&format!(
-                "Unknown verifier type '{}'. Valid: shell, json, levenshtein, semantic, tool_call",
+                "Unknown verifier type '{}'. Valid: shell, levenshtein, semantic, tool_call",
                 v.verifier_type
             )));
         }

@@ -1,5 +1,6 @@
 mod commands;
 mod output;
+mod output_collector;
 mod progress;
 
 use clap::{Parser, Subcommand};
@@ -152,6 +153,20 @@ enum Commands {
         /// After the run completes, automatically reflect on that trajectory
         #[arg(long)]
         auto_reflect: bool,
+
+        /// Copy output artifacts to this directory after the run.
+        ///
+        /// Files collected are those matching `collect` patterns in `[boundary]`
+        /// (defaults to all `allow_write` patterns when `collect` is not set).
+        #[arg(long = "output-dir", value_name = "PATH")]
+        output_dir: Option<PathBuf>,
+
+        /// Emit a single JSON object to stdout instead of human-readable output.
+        ///
+        /// The JSON includes run metadata, `structured_output` (if `output_schema` was set),
+        /// and `artifacts` with inline file contents (up to 512 KB per file / 2 MB total).
+        #[arg(long)]
+        json: bool,
     },
     /// List trajectories
     List {
@@ -440,6 +455,8 @@ async fn main() {
             input,
             runner,
             auto_reflect,
+            output_dir,
+            json,
         } => match build_runtime_context(var, vars, input) {
             Ok(ctx) => {
                 commands::run::run_command(
@@ -450,6 +467,8 @@ async fn main() {
                     dry_run,
                     runs,
                     auto_reflect,
+                    output_dir,
+                    json,
                 )
                 .await
             }
