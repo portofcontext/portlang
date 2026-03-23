@@ -192,10 +192,16 @@ Use only the list_trajectories and load_trajectory tools — do not use Bash, Re
                 &field_config.tools,
                 field_config.boundary.output_schema.is_some(),
             );
-            let sandbox =
-                create_sandbox(&env, &field_config.boundary, Arc::new(ToolRegistry::new()))
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
+            let sandbox = create_sandbox(
+                &env,
+                &field_config.boundary,
+                Arc::new(ToolRegistry::new()),
+                None,
+                None,
+                None,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
             run_field_with_claude_code(&field_config, &ctx, sandbox).await?
         }
         _ => {

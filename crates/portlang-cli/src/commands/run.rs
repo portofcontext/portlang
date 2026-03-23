@@ -37,6 +37,9 @@ pub async fn run_command(
     parent_field: Option<PathBuf>,
     ctx: RuntimeContext,
     runner: String,
+    backend: Option<String>,
+    backend_url: Option<String>,
+    backend_command: Option<String>,
     dry_run: bool,
     runs: usize,
     auto_reflect: bool,
@@ -47,13 +50,26 @@ pub async fn run_command(
         return run_dry(field_path, parent_field, ctx);
     }
     if runs > 1 {
-        return run_multi(field_path, runs, parent_field, ctx, runner).await;
+        return run_multi(
+            field_path,
+            runs,
+            parent_field,
+            ctx,
+            runner,
+            backend,
+            backend_url,
+            backend_command,
+        )
+        .await;
     }
     run_single(
         field_path,
         parent_field,
         ctx,
         runner,
+        backend,
+        backend_url,
+        backend_command,
         auto_reflect,
         output_dir,
         json_output,
@@ -136,6 +152,9 @@ async fn run_single(
     parent_field: Option<PathBuf>,
     ctx: RuntimeContext,
     runner: String,
+    backend: Option<String>,
+    backend_url: Option<String>,
+    backend_command: Option<String>,
     auto_reflect: bool,
     output_dir: Option<PathBuf>,
     json_output: bool,
@@ -199,9 +218,16 @@ async fn run_single(
                 &field.tools,
                 field.boundary.output_schema.is_some(),
             );
-            let sandbox = create_sandbox(&env, &field.boundary, Arc::new(ToolRegistry::new()))
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
+            let sandbox = create_sandbox(
+                &env,
+                &field.boundary,
+                Arc::new(ToolRegistry::new()),
+                backend.as_deref(),
+                backend_url.as_deref(),
+                backend_command.as_deref(),
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
             run_field_with_claude_code(&field, &ctx, sandbox).await?
         }
         _ => {
@@ -368,6 +394,9 @@ async fn run_multi(
     parent_field: Option<PathBuf>,
     ctx: RuntimeContext,
     runner: String,
+    backend: Option<String>,
+    backend_url: Option<String>,
+    backend_command: Option<String>,
 ) -> Result<()> {
     println!("Convergence analysis: {}", field_path.display());
     println!("Runs: {}", runs);
@@ -408,9 +437,16 @@ async fn run_multi(
                     &field.tools,
                     field.boundary.output_schema.is_some(),
                 );
-                let sandbox = create_sandbox(&env, &field.boundary, Arc::new(ToolRegistry::new()))
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
+                let sandbox = create_sandbox(
+                    &env,
+                    &field.boundary,
+                    Arc::new(ToolRegistry::new()),
+                    backend.as_deref(),
+                    backend_url.as_deref(),
+                    backend_command.as_deref(),
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
                 run_field_with_claude_code(&field, &ctx, sandbox).await?
             }
             _ => {

@@ -128,6 +128,9 @@ Run a field
 * `--runner <RUNNER>` — Agent loop runner: "native" (default) or "claude-code"
 
   Default value: `native`
+* `--backend <BACKEND>` — Sandbox backend: "http" or "subprocess" (overrides local container auto-detection)
+* `--backend-url <BACKEND_URL>` — URL for the HTTP backend (required when --backend http)
+* `--backend-command <BACKEND_COMMAND>` — Shell command for the subprocess backend (required when --backend subprocess)
 * `--auto-reflect` — After the run completes, automatically reflect on that trajectory
 * `--output-dir <PATH>` — Copy output artifacts to this directory after the run.
 
@@ -187,6 +190,9 @@ Run all fields in a directory and report aggregate accuracy
 * `--runner <RUNNER>` — Agent loop runner: "native" (default) or "claude-code"
 
   Default value: `native`
+* `--backend <BACKEND>` — Sandbox backend: "http" or "subprocess" (overrides local container auto-detection)
+* `--backend-url <BACKEND_URL>` — URL for the HTTP backend (required when --backend http)
+* `--backend-command <BACKEND_COMMAND>` — Shell command for the subprocess backend (required when --backend subprocess)
 * `--var <KEY=VALUE>` — Template variable as KEY=VALUE (repeatable)
 * `--vars <FILE>` — JSON file containing template variables (key→value map)
 

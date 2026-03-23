@@ -86,7 +86,15 @@ async fn prepare_agent_view_inner(
     let sandbox = if let Some(s) = sandbox_override {
         s
     } else {
-        create_sandbox(&field.environment, &field.boundary, registry.clone()).await?
+        create_sandbox(
+            &field.environment,
+            &field.boundary,
+            registry.clone(),
+            None,
+            None,
+            None,
+        )
+        .await?
     };
     let container_id = sandbox
         .container_id()

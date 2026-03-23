@@ -24,6 +24,22 @@ pub trait ScriptExecHandle: Send {
     async fn wait(&mut self) -> std::io::Result<Option<i32>>;
 }
 
+/// Standard process-backed [`ScriptExecHandle`] wrapping a `tokio::process::Child`.
+///
+/// Used by local container backends (Apple Container, Podman, Docker) and
+/// `DispatchSandbox`. Remote backends return their own implementations.
+pub struct ChildHandle(pub tokio::process::Child);
+
+#[async_trait]
+impl ScriptExecHandle for ChildHandle {
+    async fn kill(&mut self) -> std::io::Result<()> {
+        self.0.kill().await
+    }
+    async fn wait(&mut self) -> std::io::Result<Option<i32>> {
+        self.0.wait().await.map(|s| s.code())
+    }
+}
+
 /// Streams and control handle returned by [`Sandbox::exec_script_streaming`].
 pub struct ScriptHandle {
     /// Live stdout from the running script (JSONL from claude).

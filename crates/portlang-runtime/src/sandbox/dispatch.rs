@@ -1,24 +1,11 @@
 use super::error::{BoundaryViolation, Result, SandboxError};
-use super::traits::{CommandOutput, Sandbox, ScriptExecHandle, ScriptHandle};
+use super::traits::{ChildHandle, CommandOutput, Sandbox, ScriptHandle};
 use crate::tools::ToolRegistry;
 use async_trait::async_trait;
 use portlang_core::{Action, Boundary};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
-
-/// Wraps a `tokio::process::Child` to implement [`ScriptExecHandle`].
-struct ChildHandle(tokio::process::Child);
-
-#[async_trait]
-impl ScriptExecHandle for ChildHandle {
-    async fn kill(&mut self) -> std::io::Result<()> {
-        self.0.kill().await
-    }
-    async fn wait(&mut self) -> std::io::Result<Option<i32>> {
-        self.0.wait().await.map(|s| s.code())
-    }
-}
 
 /// Dispatch sandbox - executes actions on the actual filesystem with boundary checks
 pub struct DispatchSandbox {

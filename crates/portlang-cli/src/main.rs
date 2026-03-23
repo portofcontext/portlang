@@ -150,6 +150,18 @@ enum Commands {
         #[arg(long = "runner", default_value = "native")]
         runner: String,
 
+        /// Sandbox backend: "http" or "subprocess" (overrides local container auto-detection)
+        #[arg(long = "backend")]
+        backend: Option<String>,
+
+        /// URL for the HTTP backend (required when --backend http)
+        #[arg(long = "backend-url")]
+        backend_url: Option<String>,
+
+        /// Shell command for the subprocess backend (required when --backend subprocess)
+        #[arg(long = "backend-command")]
+        backend_command: Option<String>,
+
         /// After the run completes, automatically reflect on that trajectory
         #[arg(long)]
         auto_reflect: bool,
@@ -236,6 +248,18 @@ enum EvalSubcommand {
         /// Agent loop runner: "native" (default) or "claude-code"
         #[arg(long = "runner", default_value = "native")]
         runner: String,
+
+        /// Sandbox backend: "http" or "subprocess" (overrides local container auto-detection)
+        #[arg(long = "backend")]
+        backend: Option<String>,
+
+        /// URL for the HTTP backend (required when --backend http)
+        #[arg(long = "backend-url")]
+        backend_url: Option<String>,
+
+        /// Shell command for the subprocess backend (required when --backend subprocess)
+        #[arg(long = "backend-command")]
+        backend_command: Option<String>,
 
         /// Template variable as KEY=VALUE (repeatable)
         #[arg(long = "var", value_name = "KEY=VALUE")]
@@ -454,6 +478,9 @@ async fn main() {
             vars,
             input,
             runner,
+            backend,
+            backend_url,
+            backend_command,
             auto_reflect,
             output_dir,
             json,
@@ -464,6 +491,9 @@ async fn main() {
                     parent_field,
                     ctx,
                     runner,
+                    backend,
+                    backend_url,
+                    backend_command,
                     dry_run,
                     runs,
                     auto_reflect,
@@ -486,11 +516,24 @@ async fn main() {
                 parent_field,
                 resume,
                 runner,
+                backend,
+                backend_url,
+                backend_command,
                 var,
                 vars,
             } => match build_runtime_context(var, vars, None) {
                 Ok(ctx) => {
-                    commands::eval::eval_command(directory, parent_field, resume, ctx, runner).await
+                    commands::eval::eval_command(
+                        directory,
+                        parent_field,
+                        resume,
+                        ctx,
+                        runner,
+                        backend,
+                        backend_url,
+                        backend_command,
+                    )
+                    .await
                 }
                 Err(e) => Err(e),
             },

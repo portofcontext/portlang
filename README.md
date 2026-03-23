@@ -163,7 +163,7 @@ portlang can use [Claude Code](https://claude.ai/code) as its agent loop instead
 portlang run --runner claude-code field.field
 ```
 
-**Auth:** if you already use Claude Code, no setup is needed — portlang reads credentials from `~/.claude/.credentials.json` automatically. Otherwise, run `claude setup-token` to generate a long-lived OAuth token, or set `ANTHROPIC_API_KEY` to use the API directly.
+**Auth:** Run `claude setup-token` to generate a long-lived OAuth token, or set `ANTHROPIC_API_KEY` to use the API directly.
 
 **Limitations vs native runner:** `ToolCall` verifiers and boundary context tracing are not supported
 

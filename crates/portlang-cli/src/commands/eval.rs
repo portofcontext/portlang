@@ -30,6 +30,9 @@ pub async fn eval_command(
     resume_id: Option<String>,
     ctx: RuntimeContext,
     runner: String,
+    backend: Option<String>,
+    backend_url: Option<String>,
+    backend_command: Option<String>,
 ) -> Result<()> {
     // Load parent config: explicit -p flag takes priority, then look for a .field or field.toml at the directory root
     let parent = if let Some(ref explicit) = parent_field {
@@ -191,9 +194,16 @@ pub async fn eval_command(
                     &field.tools,
                     field.boundary.output_schema.is_some(),
                 );
-                let sandbox = create_sandbox(&env, &field.boundary, Arc::new(ToolRegistry::new()))
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
+                let sandbox = create_sandbox(
+                    &env,
+                    &field.boundary,
+                    Arc::new(ToolRegistry::new()),
+                    backend.as_deref(),
+                    backend_url.as_deref(),
+                    backend_command.as_deref(),
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
                 run_field_with_claude_code(&field, &eval_ctx, sandbox).await
             }
             _ => {
