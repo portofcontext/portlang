@@ -1,11 +1,24 @@
 use super::error::{BoundaryViolation, Result, SandboxError};
-use super::traits::{CommandOutput, Sandbox};
+use super::traits::{CommandOutput, Sandbox, ScriptExecHandle, ScriptHandle};
 use crate::tools::ToolRegistry;
 use async_trait::async_trait;
 use portlang_core::{Action, Boundary};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
+
+/// Wraps a `tokio::process::Child` to implement [`ScriptExecHandle`].
+struct ChildHandle(tokio::process::Child);
+
+#[async_trait]
+impl ScriptExecHandle for ChildHandle {
+    async fn kill(&mut self) -> std::io::Result<()> {
+        self.0.kill().await
+    }
+    async fn wait(&mut self) -> std::io::Result<Option<i32>> {
+        self.0.wait().await.map(|s| s.code())
+    }
+}
 
 /// Dispatch sandbox - executes actions on the actual filesystem with boundary checks
 pub struct DispatchSandbox {
@@ -51,10 +64,6 @@ impl DispatchSandbox {
 #[async_trait]
 impl Sandbox for DispatchSandbox {
     fn backend_name(&self) -> &str {
-        "dispatch"
-    }
-
-    fn exec_cli(&self) -> &str {
         "dispatch"
     }
 
@@ -119,5 +128,31 @@ impl Sandbox for DispatchSandbox {
 
     fn container_id(&self) -> Option<&str> {
         None // DispatchSandbox doesn't use containers
+    }
+
+    async fn exec_script_streaming(&self, script_content: &str) -> Result<ScriptHandle> {
+        let script_path = self.root.join(".portlang_cc_runner.sh");
+        tokio::fs::write(&script_path, script_content)
+            .await
+            .map_err(|e| {
+                SandboxError::CommandError(format!("Failed to write runner script: {e}"))
+            })?;
+
+        let mut child = tokio::process::Command::new("sh")
+            .arg(&script_path)
+            .current_dir(&self.root)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| SandboxError::CommandError(format!("Failed to spawn script: {e}")))?;
+
+        let stdout = Box::new(child.stdout.take().expect("stdout piped"));
+        let stderr = Box::new(child.stderr.take().expect("stderr piped"));
+
+        Ok(ScriptHandle {
+            stdout,
+            stderr,
+            exec: Box::new(ChildHandle(child)),
+        })
     }
 }

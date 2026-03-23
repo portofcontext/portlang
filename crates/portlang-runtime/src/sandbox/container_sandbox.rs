@@ -1,12 +1,27 @@
 use super::container_backend::ContainerBackend;
 use super::error::{BoundaryViolation, Result, SandboxError};
-use super::traits::{CommandOutput, Sandbox};
+use super::traits::{CommandOutput, Sandbox, ScriptExecHandle, ScriptHandle};
 use crate::tools::ToolRegistry;
 use async_trait::async_trait;
 use portlang_core::{Action, Boundary, Environment};
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::sync::Arc;
+use tokio::process::Command;
 use uuid::Uuid;
+
+/// Wraps a `tokio::process::Child` to implement [`ScriptExecHandle`].
+struct ChildHandle(tokio::process::Child);
+
+#[async_trait]
+impl ScriptExecHandle for ChildHandle {
+    async fn kill(&mut self) -> std::io::Result<()> {
+        self.0.kill().await
+    }
+    async fn wait(&mut self) -> std::io::Result<Option<i32>> {
+        self.0.wait().await.map(|s| s.code())
+    }
+}
 
 /// Sandbox implementation backed by any [`ContainerBackend`].
 ///
@@ -15,7 +30,6 @@ use uuid::Uuid;
 /// operations: build, run, exec, stop.
 pub struct ContainerSandbox {
     container_id: String,
-    #[allow(dead_code)]
     host_workspace: PathBuf,
     boundary: Boundary,
     registry: Arc<ToolRegistry>,
@@ -293,10 +307,6 @@ impl Sandbox for ContainerSandbox {
         self.backend.name()
     }
 
-    fn exec_cli(&self) -> &str {
-        self.backend.cli()
-    }
-
     async fn dispatch(&self, action: &Action) -> Result<String> {
         match action {
             Action::ToolCall { tool, input } => match tool.as_str() {
@@ -465,6 +475,38 @@ impl Sandbox for ContainerSandbox {
 
     fn container_id(&self) -> Option<&str> {
         Some(&self.container_id)
+    }
+
+    async fn exec_script_streaming(&self, script_content: &str) -> Result<ScriptHandle> {
+        tokio::fs::write(
+            self.host_workspace.join(".portlang_cc_runner.sh"),
+            script_content,
+        )
+        .await
+        .map_err(|e| SandboxError::CommandError(format!("Failed to write runner script: {e}")))?;
+
+        let mut child = Command::new(self.backend.cli())
+            .args([
+                "exec",
+                &self.container_id,
+                "sh",
+                "/workspace/.portlang_cc_runner.sh",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| {
+                SandboxError::CommandError(format!("Failed to spawn container exec: {e}"))
+            })?;
+
+        let stdout = Box::new(child.stdout.take().expect("stdout piped"));
+        let stderr = Box::new(child.stderr.take().expect("stderr piped"));
+
+        Ok(ScriptHandle {
+            stdout,
+            stderr,
+            exec: Box::new(ChildHandle(child)),
+        })
     }
 }
 

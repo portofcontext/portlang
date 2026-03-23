@@ -7,10 +7,10 @@ use portlang_provider_anthropic::AnthropicProvider;
 use portlang_provider_openrouter::OpenRouterProvider;
 use portlang_runner_claudecode::{run_field_with_claude_code, with_required_packages};
 use portlang_runtime::{run_field, sandbox::create_sandbox, tools::ToolRegistry, ModelProvider};
-use std::sync::Arc;
 use portlang_trajectory::FilesystemStore;
 use serde::Serialize;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::output_collector::{
     collect_artifacts, copy_artifacts_to_dir, effective_collect_patterns, CollectedArtifact,
@@ -194,8 +194,13 @@ async fn run_single(
             if !json_output {
                 println!("Using Claude Code runner");
             }
-            let env = with_required_packages(&field.environment, &field.tools, field.boundary.output_schema.is_some());
-            let sandbox = create_sandbox(&env, &field.boundary, Arc::new(ToolRegistry::new())).await
+            let env = with_required_packages(
+                &field.environment,
+                &field.tools,
+                field.boundary.output_schema.is_some(),
+            );
+            let sandbox = create_sandbox(&env, &field.boundary, Arc::new(ToolRegistry::new()))
+                .await
                 .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
             run_field_with_claude_code(&field, &ctx, sandbox).await?
         }
@@ -398,8 +403,13 @@ async fn run_multi(
 
         let trajectory = match runner.as_str() {
             "claude-code" => {
-                let env = with_required_packages(&field.environment, &field.tools, field.boundary.output_schema.is_some());
-                let sandbox = create_sandbox(&env, &field.boundary, Arc::new(ToolRegistry::new())).await
+                let env = with_required_packages(
+                    &field.environment,
+                    &field.tools,
+                    field.boundary.output_schema.is_some(),
+                );
+                let sandbox = create_sandbox(&env, &field.boundary, Arc::new(ToolRegistry::new()))
+                    .await
                     .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
                 run_field_with_claude_code(&field, &ctx, sandbox).await?
             }

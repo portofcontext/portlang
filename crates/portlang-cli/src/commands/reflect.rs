@@ -6,8 +6,8 @@ use portlang_provider_anthropic::AnthropicProvider;
 use portlang_provider_openrouter::OpenRouterProvider;
 use portlang_runner_claudecode::{run_field_with_claude_code, with_required_packages};
 use portlang_runtime::{run_field, sandbox::create_sandbox, tools::ToolRegistry, ModelProvider};
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 const REFLECT_FIELD: &str = include_str!("../reflect_tools/reflect.field");
 const LIST_TRAJECTORIES_PY: &str = include_str!("../reflect_tools/list_trajectories.py");
@@ -187,9 +187,15 @@ Use only the list_trajectories and load_trajectory tools — do not use Bash, Re
     // ── Run ──────────────────────────────────────────────────────────────────
     let trajectory = match runner.as_str() {
         "claude-code" => {
-            let env = with_required_packages(&field_config.environment, &field_config.tools, field_config.boundary.output_schema.is_some());
-            let sandbox = create_sandbox(&env, &field_config.boundary, Arc::new(ToolRegistry::new())).await
-                .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
+            let env = with_required_packages(
+                &field_config.environment,
+                &field_config.tools,
+                field_config.boundary.output_schema.is_some(),
+            );
+            let sandbox =
+                create_sandbox(&env, &field_config.boundary, Arc::new(ToolRegistry::new()))
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
             run_field_with_claude_code(&field_config, &ctx, sandbox).await?
         }
         _ => {

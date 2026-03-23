@@ -10,10 +10,8 @@ use portlang_skills::{
     build_skill_metadata_block, detect_skill_invocations, write_skills_to_workspace, SkillResolver,
 };
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
 
 /// Run a field using Claude Code CLI as the agent loop.
 ///
@@ -42,11 +40,6 @@ pub async fn run_field_with_claude_code(
     // --- 2. Sandbox is injected by the caller ---
     // The caller is responsible for building the environment with with_required_packages()
     // and creating the sandbox before passing it here.
-
-    let container_id = sandbox
-        .container_id()
-        .ok_or_else(|| anyhow::anyhow!("Sandbox did not provide a container ID"))?
-        .to_string();
 
     // --- 2b. Resolve skills ---
     let mut skills = field.skills.clone();
@@ -155,24 +148,17 @@ The Write tool requires the file to already exist and to have been read first.";
     write_workspace_file(&workspace, ".portlang_cc_settings.json", &settings_json)?;
 
     let script = build_runner_script(&auth_env_var, &auth_value, &model, has_system, has_mcp);
-    write_workspace_file(&workspace, ".portlang_cc_runner.sh", &script)?;
 
     // --- 6. Spawn exec and stream JSONL output ---
-    let exec_cli = sandbox.exec_cli().to_string();
-    let mut child = Command::new(&exec_cli)
-        .args([
-            "exec",
-            &container_id,
-            "sh",
-            "/workspace/.portlang_cc_runner.sh",
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("Failed to spawn container exec for claude-code")?;
+    // The sandbox stages the script and returns live stdout/stderr streams.
+    // Local backends write the script to the bind-mounted host workspace;
+    // remote backends (e.g. Modal) inject it directly into the container.
+    let mut exec_handle = sandbox
+        .exec_script_streaming(&script)
+        .await
+        .context("Failed to start claude-code in sandbox")?;
 
-    let stdout = child.stdout.take().expect("stdout must be piped");
-    let mut lines = BufReader::new(stdout).lines();
+    let mut lines = BufReader::new(exec_handle.stdout).lines();
 
     // Drain stderr concurrently to prevent pipe-buffer deadlock.
     // If stderr is not consumed while the subprocess writes to it, the OS pipe
@@ -180,7 +166,7 @@ The Write tool requires the file to already exist and to have been read first.";
     // producing stdout, and our lines loop waits forever. This is especially
     // likely when npx downloads packages on first run (lots of npm output).
     // Log each line in real-time at debug level so it's visible with RUST_LOG=debug.
-    let stderr = child.stderr.take().expect("stderr must be piped");
+    let stderr = exec_handle.stderr;
     let stderr_task: tokio::task::JoinHandle<String> = tokio::spawn(async move {
         let mut collected = String::new();
         let mut lines = BufReader::new(stderr).lines();
@@ -225,14 +211,14 @@ The Write tool requires the file to already exist and to have been read first.";
             .count() as u64;
 
         if tool_steps >= max_steps {
-            let _ = child.kill().await;
+            let _ = exec_handle.exec.kill().await;
             trajectory.finish(RunOutcome::BudgetExhausted {
                 reason: format!("Step limit {} exceeded", max_steps),
             });
             break;
         }
         if acc.cost_usd >= max_cost_usd {
-            let _ = child.kill().await;
+            let _ = exec_handle.exec.kill().await;
             trajectory.finish(RunOutcome::BudgetExhausted {
                 reason: format!(
                     "Cost limit ${:.4} exceeded (current: ${:.4})",
@@ -242,7 +228,7 @@ The Write tool requires the file to already exist and to have been read first.";
             break;
         }
         if acc.total_tokens() >= max_tokens {
-            let _ = child.kill().await;
+            let _ = exec_handle.exec.kill().await;
             trajectory.finish(RunOutcome::BudgetExhausted {
                 reason: format!(
                     "Token limit {} exceeded (current: {})",
@@ -255,7 +241,7 @@ The Write tool requires the file to already exist and to have been read first.";
     }
 
     // Collect stderr and wait for process to exit
-    let exit_status = child.wait().await?;
+    let exit_code = exec_handle.exec.wait().await.ok().flatten();
     let stderr_output = stderr_task.await.unwrap_or_default();
     if !stderr_output.is_empty() {
         tracing::warn!("claude-code stderr:\n{}", stderr_output);
@@ -264,7 +250,7 @@ The Write tool requires the file to already exist and to have been read first.";
         tracing::warn!(
             "claude-code produced no output (exit code: {:?}). \
              Check ANTHROPIC_API_KEY/CLAUDE_CODE_OAUTH_TOKEN and that 'claude' is in PATH.",
-            exit_status.code()
+            exit_code
         );
     }
 

@@ -54,6 +54,15 @@ pub fn validate_field_config(field: &Field) -> anyhow::Result<()> {
 /// Prepare what the agent will see for a field
 /// This handles all tool registration and prompt building
 pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
+    prepare_agent_view_inner(field, None).await
+}
+
+/// Internal implementation — accepts an optional pre-built sandbox so callers like
+/// Modal can inject their own backend without going through `create_sandbox`.
+async fn prepare_agent_view_inner(
+    field: &Field,
+    sandbox_override: Option<Arc<dyn crate::sandbox::Sandbox>>,
+) -> anyhow::Result<AgentView> {
     tracing::debug!("Preparing agent view for field: {}", field.name);
 
     // Create tool registry with built-in tools
@@ -73,11 +82,12 @@ pub async fn prepare_agent_view(field: &Field) -> anyhow::Result<AgentView> {
     // Wrap registry in Arc early so we can share it with sandbox and continue registering tools
     let registry = Arc::new(registry);
 
-    // Create sandbox FIRST so we can get container ID for MCP, Python, and shell tools.
-    // All custom tool execution is sandboxed — the container_id is required.
-    // Package inference (uv for Python tools, nodejs/npm for npx MCP, etc.) is handled
-    // by the config parser before this point.
-    let sandbox = create_sandbox(&field.environment, &field.boundary, registry.clone()).await?;
+    // Use the injected sandbox when provided (e.g. Modal), otherwise create one from the field.
+    let sandbox = if let Some(s) = sandbox_override {
+        s
+    } else {
+        create_sandbox(&field.environment, &field.boundary, registry.clone()).await?
+    };
     let container_id = sandbox
         .container_id()
         .ok_or_else(|| anyhow::anyhow!("Sandbox did not provide a container ID"))?
@@ -485,7 +495,20 @@ pub async fn run_field(
     provider: &dyn ModelProvider,
     ctx: &RuntimeContext,
 ) -> anyhow::Result<Trajectory> {
-    let mut trajectory = run_field_inner(field, provider, ctx).await?;
+    run_field_with_sandbox(field, provider, ctx, None).await
+}
+
+/// Like [`run_field`] but accepts a pre-built sandbox instead of creating one.
+///
+/// Use this when you need to inject a custom backend (e.g. Modal) without going
+/// through the default `create_sandbox` auto-detection path.
+pub async fn run_field_with_sandbox(
+    field: &Field,
+    provider: &dyn ModelProvider,
+    ctx: &RuntimeContext,
+    sandbox: impl Into<Option<Arc<dyn crate::sandbox::Sandbox>>>,
+) -> anyhow::Result<Trajectory> {
+    let mut trajectory = run_field_inner(field, provider, ctx, sandbox.into()).await?;
 
     // Post-run: record skill availability and heuristic invocations on trajectory.
     // Uses field.skills (slugs only) — no need for resolved content.
@@ -503,6 +526,7 @@ async fn run_field_inner(
     field: &Field,
     provider: &dyn ModelProvider,
     ctx: &RuntimeContext,
+    sandbox_override: Option<Arc<dyn crate::sandbox::Sandbox>>,
 ) -> anyhow::Result<Trajectory> {
     // Stage input data before preparing agent view (so workspace dir exists for container mount)
     let input_note = if let Some(ref input) = ctx.input {
@@ -521,7 +545,7 @@ async fn run_field_inner(
     };
 
     // Prepare what the agent sees
-    let agent_view = prepare_agent_view(field).await?;
+    let agent_view = prepare_agent_view_inner(field, sandbox_override).await?;
     let AgentView {
         tools,
         system_prompt: mut system_prompt_text,
@@ -1101,11 +1125,17 @@ async fn preflight_verifiers(
         if let VerifierAlgorithm::Shell { command } = &verifier.algorithm {
             if let Ok(output) = sandbox.run_command(command).await {
                 if output.exit_code == 127 {
+                    let hint = if sandbox.container_id().is_some() {
+                        "Add the required package to [[environment].packages] in your field file."
+                    } else {
+                        "Install the required binary on your host before running this field."
+                    };
                     anyhow::bail!(
-                        "Verifier '{}' cannot run — command not found (exit 127).\n  Command: {}\n  stderr: {}\nInstall the required binary on your host before running this field.",
+                        "Verifier '{}' cannot run — command not found (exit 127).\n  Command: {}\n  stderr: {}\n{}",
                         verifier.name,
                         command,
-                        output.stderr.trim()
+                        output.stderr.trim(),
+                        hint
                     );
                 }
             }

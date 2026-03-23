@@ -12,19 +12,26 @@ Create a Python program that analyzes text files and reports statistics.
 Your program should:
 1. Read a text file and count total words, unique words, average word length, and top 5 most common words
 2. Save the analysis to a JSON file
-3. Accept arguments: python analyzer.py input.txt output.json
+3. Accept arguments: python3 analyzer.py input.txt output.json
 4. Include pytest tests in test_analyzer.py that verify all functionality
 5. Include a requirements.txt listing pytest
 
 Create exactly three files: analyzer.py, test_analyzer.py, requirements.txt.
-Once all three exist, stop — the verifier will run the tests automatically.
+
+Before stopping, verify all tests pass with:
+  python3 -m pytest test_analyzer.py -v
+
+Note: pytest is pre-installed (python3-pytest). Do not use pip.
+Fix any failing tests before stopping.
 """
 re_observation = [
-    "echo '=== workspace ===' && ls -1 *.py *.txt 2>/dev/null | cat"
+    "echo '=== workspace ===' && ls -1 *.py *.txt 2>/dev/null | cat",
+    "python3 -m pytest test_analyzer.py -v 2>&1 || true"
 ]
 
 [environment]
 root = "./workspace"
+packages = ["python3-pytest"]
 
 [boundary]
 allow_write = ["*.py", "*.txt", "requirements.txt"]
@@ -34,6 +41,6 @@ max_steps = 30
 
 [[verifier]]
 name = "pytest"
-command = "python -m pytest test_analyzer.py -v 2>&1"
+command = "python3 -m pytest test_analyzer.py -v 2>&1"
 trigger = "on_stop"
 description = "All tests must pass"
