@@ -14,6 +14,12 @@ pub struct CommandOutput {
 /// Sandbox trait for executing actions with boundary enforcement
 #[async_trait]
 pub trait Sandbox: Send + Sync {
+    /// Name of the container backend in use (e.g. "apple-container", "docker").
+    fn backend_name(&self) -> &str;
+
+    /// CLI binary to use for exec (e.g. "container", "podman", "docker").
+    fn exec_cli(&self) -> &str;
+
     /// Dispatch an action for execution
     async fn dispatch(&self, action: &Action) -> Result<String>;
 

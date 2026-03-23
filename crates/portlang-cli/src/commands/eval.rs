@@ -4,8 +4,9 @@ use portlang_config::{apply_runtime_context, parse_field_with_parent, parse_pare
 use portlang_core::RuntimeContext;
 use portlang_provider_anthropic::AnthropicProvider;
 use portlang_provider_openrouter::OpenRouterProvider;
-use portlang_runner_claudecode::run_field_with_claude_code;
-use portlang_runtime::{run_field, validate_field_config, ModelProvider};
+use portlang_runner_claudecode::{run_field_with_claude_code, with_required_packages};
+use portlang_runtime::{run_field, sandbox::create_sandbox, tools::ToolRegistry, validate_field_config, ModelProvider};
+use std::sync::Arc;
 use portlang_trajectory::{EvalRun, EvalRunStore, FilesystemStore, TrajectoryStore};
 use std::collections::HashSet;
 use std::ffi::OsStr;
@@ -182,7 +183,12 @@ pub async fn eval_command(
         run_idx += 1;
 
         let run_result = match runner.as_str() {
-            "claude-code" => run_field_with_claude_code(&field, &eval_ctx).await,
+            "claude-code" => {
+                let env = with_required_packages(&field.environment, &field.tools, field.boundary.output_schema.is_some());
+                let sandbox = create_sandbox(&env, &field.boundary, Arc::new(ToolRegistry::new())).await
+                    .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
+                run_field_with_claude_code(&field, &eval_ctx, sandbox).await
+            }
             _ => {
                 let provider: Box<dyn ModelProvider> = if field.model.name.contains('/') {
                     let mut p = OpenRouterProvider::from_env(&field.model.name)?;
@@ -203,7 +209,7 @@ pub async fn eval_command(
 
         match run_result {
             Ok(trajectory) => {
-                store.save(&trajectory)?;
+                store.save_redacted(&trajectory, &field.collect_secret_candidates())?;
 
                 eval_run.trajectory_ids.push(trajectory.id.clone());
                 eval_run.task_count += 1;

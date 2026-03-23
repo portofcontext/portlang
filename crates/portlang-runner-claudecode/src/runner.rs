@@ -5,7 +5,7 @@ use portlang_core::{
     Action, Cost, Environment, Field, InputSource, RunOutcome, RuntimeContext, Skill, Trajectory,
     TrajectoryStep, VerifierAlgorithm, VerifierTrigger,
 };
-use portlang_runtime::{run_verifiers, sandbox::create_sandbox, tools::ToolRegistry};
+use portlang_runtime::{run_verifiers, sandbox::Sandbox};
 use portlang_skills::{
     build_skill_metadata_block, detect_skill_invocations, write_skills_to_workspace, SkillResolver,
 };
@@ -23,7 +23,11 @@ use tokio::process::Command;
 /// responsibility.
 ///
 /// Requires `ANTHROPIC_API_KEY` to be set in the host environment.
-pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> Result<Trajectory> {
+pub async fn run_field_with_claude_code(
+    field: &Field,
+    ctx: &RuntimeContext,
+    sandbox: Arc<dyn Sandbox>,
+) -> Result<Trajectory> {
     // --- 1. Ensure workspace directory exists and stage any input ---
     let workspace_str = &field.environment.root;
     let workspace = PathBuf::from(workspace_str);
@@ -35,18 +39,9 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
         stage_input(&workspace, input).await?;
     }
 
-    // --- 2. Create sandbox (starts the Apple Container) ---
-    // Ensure claude-code (and uv if python tools are present) are installed in the
-    // container image by injecting them as special packages.
-    let env = with_required_packages(
-        &field.environment,
-        &field.tools,
-        field.boundary.output_schema.is_some(),
-    );
-    let registry = Arc::new(ToolRegistry::new());
-    let sandbox = create_sandbox(&env, &field.boundary, registry)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
+    // --- 2. Sandbox is injected by the caller ---
+    // The caller is responsible for building the environment with with_required_packages()
+    // and creating the sandbox before passing it here.
 
     let container_id = sandbox
         .container_id()
@@ -68,7 +63,7 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
         format!("claude-code/{}", field.model.name),
         field.prompt.system.clone().unwrap_or_default(),
         "claude-code (native tools)".to_string(),
-        "apple-container".to_string(),
+        sandbox.backend_name().to_string(),
     );
 
     // --- 4. Write helper files into the workspace (visible at /workspace/ in container) ---
@@ -162,8 +157,9 @@ The Write tool requires the file to already exist and to have been read first.";
     let script = build_runner_script(&auth_env_var, &auth_value, &model, has_system, has_mcp);
     write_workspace_file(&workspace, ".portlang_cc_runner.sh", &script)?;
 
-    // --- 6. Spawn `container exec` and stream JSONL output ---
-    let mut child = Command::new("container")
+    // --- 6. Spawn exec and stream JSONL output ---
+    let exec_cli = sandbox.exec_cli().to_string();
+    let mut child = Command::new(&exec_cli)
         .args([
             "exec",
             &container_id,
@@ -413,7 +409,7 @@ fn build_goal_with_output_schema(goal: &str, output_schema: Option<&serde_json::
 ///
 /// Skipped when a custom image or Dockerfile is provided (we assume they
 /// already have the necessary tools).
-fn with_required_packages(
+pub fn with_required_packages(
     env: &Environment,
     tools: &[portlang_core::Tool],
     has_output_schema: bool,

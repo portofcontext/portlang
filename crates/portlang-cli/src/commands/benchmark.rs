@@ -65,8 +65,8 @@ pub async fn benchmark_command(field_path: PathBuf, runs: usize) -> Result<()> {
         // Run the field
         let trajectory = run_field(&field, provider.as_ref(), &ctx).await?;
 
-        // Save trajectory
-        store.save(&trajectory)?;
+        // Save trajectory (redacting env var secrets)
+        store.save_redacted(&trajectory, &field.collect_secret_candidates())?;
 
         // Collect for analysis
         trajectories.push(trajectory);

@@ -50,6 +50,14 @@ impl DispatchSandbox {
 
 #[async_trait]
 impl Sandbox for DispatchSandbox {
+    fn backend_name(&self) -> &str {
+        "dispatch"
+    }
+
+    fn exec_cli(&self) -> &str {
+        "dispatch"
+    }
+
     async fn dispatch(&self, action: &Action) -> Result<String> {
         match action {
             Action::ToolCall { tool, input } => {

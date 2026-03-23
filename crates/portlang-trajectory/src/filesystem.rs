@@ -92,6 +92,18 @@ impl Default for FilesystemStore {
     }
 }
 
+impl FilesystemStore {
+    /// Save a trajectory with secrets redacted before writing to disk.
+    pub fn save_redacted(&self, trajectory: &Trajectory, secrets: &[String]) -> Result<()> {
+        if secrets.is_empty() {
+            return self.save(trajectory);
+        }
+        let redactor = crate::redactor::Redactor::new(secrets.to_vec());
+        let redacted = redactor.redact_trajectory(trajectory);
+        self.save(&redacted)
+    }
+}
+
 impl TrajectoryStore for FilesystemStore {
     fn save(&self, trajectory: &Trajectory) -> Result<()> {
         self.ensure_field_dir(&trajectory.field_name)?;
@@ -225,6 +237,48 @@ mod tests {
     use super::*;
     use portlang_core::RunOutcome;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_save_redacted_removes_secrets_from_json() {
+        use portlang_core::{Action, Cost, TrajectoryStep};
+
+        let temp_dir = TempDir::new().unwrap();
+        let store = FilesystemStore::with_path(temp_dir.path());
+
+        let secret = "super-secret-api-key-xyz";
+        let mut trajectory = Trajectory::new("test-field".to_string());
+        trajectory.goal = format!("goal mentioning {secret}");
+        trajectory.add_step(TrajectoryStep::new(
+            1,
+            Action::stop(),
+            format!("result containing {secret}"),
+            false,
+            Cost::ZERO,
+            0,
+        ));
+        trajectory.finish(RunOutcome::Converged {
+            message: "done".to_string(),
+        });
+
+        store
+            .save_redacted(&trajectory, &[secret.to_string()])
+            .unwrap();
+
+        // Scan the entire trajectory directory for any file containing the secret
+        let field_dir = temp_dir.path().join("test-field");
+        for entry in fs::read_dir(&field_dir).unwrap() {
+            let path = entry.unwrap().path();
+            let json = fs::read_to_string(&path).unwrap();
+            assert!(
+                !json.contains(secret),
+                "secret should not appear in saved JSON"
+            );
+            assert!(
+                json.contains("[REDACTED]"),
+                "redaction marker should be present"
+            );
+        }
+    }
 
     #[test]
     fn test_save_and_load() {

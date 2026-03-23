@@ -5,9 +5,10 @@ use portlang_config::{apply_runtime_context, parse_field_with_parent, resolve_pa
 use portlang_core::RuntimeContext;
 use portlang_provider_anthropic::AnthropicProvider;
 use portlang_provider_openrouter::OpenRouterProvider;
-use portlang_runner_claudecode::run_field_with_claude_code;
-use portlang_runtime::{run_field, ModelProvider};
-use portlang_trajectory::{FilesystemStore, TrajectoryStore};
+use portlang_runner_claudecode::{run_field_with_claude_code, with_required_packages};
+use portlang_runtime::{run_field, sandbox::create_sandbox, tools::ToolRegistry, ModelProvider};
+use std::sync::Arc;
+use portlang_trajectory::FilesystemStore;
 use serde::Serialize;
 use std::path::PathBuf;
 
@@ -193,7 +194,10 @@ async fn run_single(
             if !json_output {
                 println!("Using Claude Code runner");
             }
-            run_field_with_claude_code(&field, &ctx).await?
+            let env = with_required_packages(&field.environment, &field.tools, field.boundary.output_schema.is_some());
+            let sandbox = create_sandbox(&env, &field.boundary, Arc::new(ToolRegistry::new())).await
+                .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
+            run_field_with_claude_code(&field, &ctx, sandbox).await?
         }
         _ => {
             let provider: Box<dyn ModelProvider> = if field.model.name.contains('/') {
@@ -223,9 +227,9 @@ async fn run_single(
         pb.finish_and_clear();
     }
 
-    // Save trajectory
+    // Save trajectory (redacting env var secrets)
     let store = FilesystemStore::new()?;
-    store.save(&trajectory)?;
+    store.save_redacted(&trajectory, &field.collect_secret_candidates())?;
 
     // Collect artifacts from workspace
     let workspace_path = std::path::Path::new(&workspace_root);
@@ -393,7 +397,12 @@ async fn run_multi(
         overall_progress.set_message(format!("Running trial {}/{}", run_num, runs));
 
         let trajectory = match runner.as_str() {
-            "claude-code" => run_field_with_claude_code(&field, &ctx).await?,
+            "claude-code" => {
+                let env = with_required_packages(&field.environment, &field.tools, field.boundary.output_schema.is_some());
+                let sandbox = create_sandbox(&env, &field.boundary, Arc::new(ToolRegistry::new())).await
+                    .map_err(|e| anyhow::anyhow!("Failed to create sandbox: {}", e))?;
+                run_field_with_claude_code(&field, &ctx, sandbox).await?
+            }
             _ => {
                 let provider: Box<dyn ModelProvider> = if field.model.name.contains('/') {
                     let mut p = OpenRouterProvider::from_env(&field.model.name)?;
@@ -412,7 +421,7 @@ async fn run_multi(
             }
         };
 
-        store.save(&trajectory)?;
+        store.save_redacted(&trajectory, &field.collect_secret_candidates())?;
         trajectories.push(trajectory);
         overall_progress.inc(1);
     }

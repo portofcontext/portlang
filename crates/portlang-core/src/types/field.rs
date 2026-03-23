@@ -234,4 +234,196 @@ impl Field {
         self.prompt.re_observation.push(command);
         self
     }
+
+    /// Collect all env var values from tool configuration for secret redaction.
+    /// Returns raw values plus any `${VAR}` expansions from the host environment.
+    /// Longest values are first so replacements don't partially match shorter substrings.
+    pub fn collect_secret_candidates(&self) -> Vec<String> {
+        let mut secrets = Vec::new();
+
+        for tool in &self.tools {
+            for v in tool.env.values() {
+                push_value_and_expansion(v, &mut secrets);
+            }
+            if let Some(ref headers) = tool.headers {
+                for v in headers.values() {
+                    push_value_and_expansion(v, &mut secrets);
+                }
+            }
+            match &tool.transport {
+                Some(McpTransport::Stdio { env, .. }) => {
+                    for v in env.values() {
+                        push_value_and_expansion(v, &mut secrets);
+                    }
+                }
+                Some(McpTransport::Sse { headers, .. }) => {
+                    for v in headers.values() {
+                        push_value_and_expansion(v, &mut secrets);
+                    }
+                }
+                None => {}
+            }
+        }
+
+        secrets.retain(|s| !s.is_empty());
+        secrets.sort_by(|a, b| b.len().cmp(&a.len()));
+        secrets.dedup();
+        secrets
+    }
+}
+
+fn push_value_and_expansion(value: &str, secrets: &mut Vec<String>) {
+    if value.is_empty() {
+        return;
+    }
+    secrets.push(value.to_string());
+    // Also expand ${VAR} references so the actual secret value is redacted too
+    if let Some(var_name) = value.strip_prefix("${").and_then(|s| s.strip_suffix("}")) {
+        if let Ok(expanded) = std::env::var(var_name) {
+            if !expanded.is_empty() {
+                secrets.push(expanded);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::environment::Environment;
+
+    fn minimal_field() -> Field {
+        Field::new(
+            "test".to_string(),
+            ModelSpec {
+                name: "claude-sonnet-4-5".to_string(),
+                temperature: None,
+            },
+            Environment::default(),
+            "goal".to_string(),
+        )
+    }
+
+    fn mcp_tool_with_env(env: HashMap<String, String>) -> Tool {
+        Tool {
+            tool_type: "mcp".to_string(),
+            name: None,
+            description: None,
+            file: None,
+            function: None,
+            input_schema: serde_json::Value::Null,
+            output_schema: None,
+            command: None,
+            args: vec![],
+            env,
+            url: None,
+            headers: None,
+            transport: None,
+            include_tools: None,
+            exclude_tools: None,
+            patch_file: None,
+        }
+    }
+
+    #[test]
+    fn test_collects_tool_env_values() {
+        let mut field = minimal_field();
+        field.tools.push(mcp_tool_with_env(HashMap::from([(
+            "API_KEY".to_string(),
+            "literal-secret-value".to_string(),
+        )])));
+
+        let secrets = field.collect_secret_candidates();
+        assert!(secrets.contains(&"literal-secret-value".to_string()));
+    }
+
+    #[test]
+    fn test_collects_tool_headers() {
+        let mut field = minimal_field();
+        let mut tool = mcp_tool_with_env(HashMap::new());
+        tool.headers = Some(HashMap::from([(
+            "Authorization".to_string(),
+            "Bearer sk-abc123".to_string(),
+        )]));
+        field.tools.push(tool);
+
+        let secrets = field.collect_secret_candidates();
+        assert!(secrets.contains(&"Bearer sk-abc123".to_string()));
+    }
+
+    #[test]
+    fn test_collects_stdio_transport_env() {
+        let mut field = minimal_field();
+        let mut tool = mcp_tool_with_env(HashMap::new());
+        tool.transport = Some(McpTransport::Stdio {
+            command: "npx".to_string(),
+            args: vec![],
+            env: HashMap::from([("SECRET".to_string(), "transport-secret-val".to_string())]),
+        });
+        field.tools.push(tool);
+
+        let secrets = field.collect_secret_candidates();
+        assert!(secrets.contains(&"transport-secret-val".to_string()));
+    }
+
+    #[test]
+    fn test_collects_sse_transport_headers() {
+        let mut field = minimal_field();
+        let mut tool = mcp_tool_with_env(HashMap::new());
+        tool.transport = Some(McpTransport::Sse {
+            url: "https://example.com/mcp".to_string(),
+            headers: HashMap::from([("x-api-key".to_string(), "sse-header-secret".to_string())]),
+        });
+        field.tools.push(tool);
+
+        let secrets = field.collect_secret_candidates();
+        assert!(secrets.contains(&"sse-header-secret".to_string()));
+    }
+
+    #[test]
+    fn test_expands_var_references() {
+        unsafe { std::env::set_var("_PORTLANG_TEST_SECRET", "expanded-secret-value") };
+
+        let mut field = minimal_field();
+        field.tools.push(mcp_tool_with_env(HashMap::from([(
+            "KEY".to_string(),
+            "${_PORTLANG_TEST_SECRET}".to_string(),
+        )])));
+
+        let secrets = field.collect_secret_candidates();
+        // Both the raw template and the expanded value should be present
+        assert!(secrets.contains(&"${_PORTLANG_TEST_SECRET}".to_string()));
+        assert!(secrets.contains(&"expanded-secret-value".to_string()));
+    }
+
+    #[test]
+    fn test_empty_values_excluded() {
+        let mut field = minimal_field();
+        field.tools.push(mcp_tool_with_env(HashMap::from([(
+            "EMPTY".to_string(),
+            "".to_string(),
+        )])));
+
+        let secrets = field.collect_secret_candidates();
+        assert!(secrets.is_empty());
+    }
+
+    #[test]
+    fn test_sorted_longest_first() {
+        let mut field = minimal_field();
+        field.tools.push(mcp_tool_with_env(HashMap::from([
+            ("SHORT".to_string(), "abc".to_string()),
+            ("LONG".to_string(), "abcdefghij".to_string()),
+        ])));
+
+        let secrets = field.collect_secret_candidates();
+        // Longest should come first to prevent partial matches during replacement
+        assert!(secrets[0].len() >= secrets[secrets.len() - 1].len());
+    }
+
+    #[test]
+    fn test_no_tools_returns_empty() {
+        let field = minimal_field();
+        assert!(field.collect_secret_candidates().is_empty());
+    }
 }
