@@ -32,6 +32,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 pub struct ParentConfig {
     pub model: Option<RawModel>,
     pub tools: Vec<RawTool>,
+    pub skills: Vec<RawSkill>,
     pub boundary: Option<RawBoundary>,
     pub code_mode_enabled: Option<bool>,
     /// Resolved absolute path to the parent's dockerfile, if any
@@ -94,6 +95,7 @@ pub fn parse_parent_config(path: impl AsRef<Path>) -> Result<Option<ParentConfig
     Ok(Some(ParentConfig {
         model: raw.model,
         tools,
+        skills: raw.skill,
         boundary: raw.boundary,
         code_mode_enabled: raw.code_mode.map(|cm| cm.enabled),
         dockerfile,
@@ -741,6 +743,37 @@ fn convert_raw_field(
         })
         .collect();
 
+    // Resolve skill list — inherit from parent or use field's own [[skill]] entries
+    let raw_skills: Vec<RawSkill> = if raw.skills.is_some() {
+        parent
+            .map(|p| p.skills.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .chain(raw.skill)
+            .collect()
+    } else {
+        raw.skill
+    };
+
+    let config_dir_for_skills = config_dir
+        .clone()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let skills: Vec<Skill> = raw_skills
+        .into_iter()
+        .map(|rs| {
+            let (kind, slug) =
+                portlang_core::skill::parse_skill_source(&rs.source, &config_dir_for_skills)
+                    .map_err(FieldParseError::InvalidField)?;
+            Ok(Skill {
+                source: rs.source,
+                kind,
+                slug,
+                content: None,
+                resources: Vec::new(),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+
     Ok(Field {
         name: raw.name,
         description: raw.description,
@@ -753,6 +786,7 @@ fn convert_raw_field(
         environment,
         boundary,
         tools,
+        skills,
         verifiers,
         vars,
         config_dir,
@@ -1276,6 +1310,7 @@ root = "./workspace"
                 temperature: Some(0.5),
             }),
             tools: vec![],
+            skills: vec![],
             boundary: None,
             code_mode_enabled: None,
             dockerfile: None,
@@ -1321,6 +1356,7 @@ root = "./workspace"
                 exclude_tools: None,
                 patch_file: None,
             }],
+            skills: vec![],
             boundary: None,
             code_mode_enabled: None,
             dockerfile: None,
@@ -1385,6 +1421,7 @@ root = "./workspace"
                 temperature: None,
             }),
             tools: vec![],
+            skills: vec![],
             boundary: None,
             code_mode_enabled: Some(true),
             dockerfile: None,
@@ -1469,5 +1506,253 @@ root = "./workspace"
         let eval_verifiers: Vec<_> = field.verifiers.iter().cloned().collect();
         assert_eq!(eval_verifiers.len(), 2);
         assert_eq!(eval_verifiers[1].name, "eval-grade");
+    }
+
+    // -----------------------------------------------------------------------
+    // Skills parsing tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_field_with_no_skills_has_empty_vec() {
+        let toml = r#"
+            name = "no-skills"
+            [model]
+            name = "anthropic/claude-sonnet-4-6"
+            [prompt]
+            goal = "Do something"
+        "#;
+        let field = parse_field_from_str(toml).unwrap();
+        assert!(field.skills.is_empty());
+    }
+
+    #[test]
+    fn test_single_github_shorthand_skill() {
+        let toml = r#"
+            name = "test"
+            [model]
+            name = "anthropic/claude-sonnet-4-6"
+            [prompt]
+            goal = "Do something"
+            [[skill]]
+            source = "owner/my-skill"
+        "#;
+        let field = parse_field_from_str(toml).unwrap();
+        assert_eq!(field.skills.len(), 1);
+        let skill = &field.skills[0];
+        assert_eq!(skill.source, "owner/my-skill");
+        assert_eq!(skill.slug, "my-skill");
+        assert!(
+            skill.content.is_none(),
+            "content should not be resolved at parse time"
+        );
+        assert!(
+            matches!(
+                &skill.kind,
+                portlang_core::SkillSourceKind::GitHub { owner, repo, .. }
+                if owner == "owner" && repo == "my-skill"
+            ),
+            "expected GitHub kind, got {:?}",
+            skill.kind
+        );
+    }
+
+    #[test]
+    fn test_multiple_skills_different_sources() {
+        let toml = r#"
+            name = "multi-skill"
+            [model]
+            name = "anthropic/claude-sonnet-4-6"
+            [prompt]
+            goal = "Do something"
+            [[skill]]
+            source = "owner/skill-one"
+            [[skill]]
+            source = "clawhub:my-formatter"
+            [[skill]]
+            source = "https://example.com"
+        "#;
+        let field = parse_field_from_str(toml).unwrap();
+        assert_eq!(field.skills.len(), 3);
+        assert_eq!(field.skills[0].slug, "skill-one");
+        assert_eq!(field.skills[1].slug, "my-formatter");
+        assert!(matches!(
+            field.skills[1].kind,
+            portlang_core::SkillSourceKind::ClawHub { .. }
+        ));
+        assert!(matches!(
+            field.skills[2].kind,
+            portlang_core::SkillSourceKind::WellKnown { .. }
+        ));
+    }
+
+    #[test]
+    fn test_skills_inherit_from_parent() {
+        let parent = ParentConfig {
+            model: Some(RawModel {
+                name: "anthropic/claude-sonnet-4-6".to_string(),
+                temperature: None,
+            }),
+            tools: vec![],
+            skills: vec![
+                RawSkill {
+                    source: "parent/skill-a".to_string(),
+                },
+                RawSkill {
+                    source: "clawhub:shared-skill".to_string(),
+                },
+            ],
+            boundary: None,
+            code_mode_enabled: None,
+            dockerfile: None,
+        };
+
+        let toml = r#"
+            name = "child"
+            model = "inherit"
+            skills = "inherit"
+            [prompt]
+            goal = "Do something"
+        "#;
+
+        let raw: RawField = toml::from_str(toml).unwrap();
+        let field = convert_raw_field(raw, None, Some(&parent)).unwrap();
+
+        assert_eq!(
+            field.skills.len(),
+            2,
+            "child should inherit both parent skills"
+        );
+        assert_eq!(field.skills[0].slug, "skill-a");
+        assert_eq!(field.skills[1].slug, "shared-skill");
+    }
+
+    #[test]
+    fn test_skills_inherit_appends_to_child_skills() {
+        // When `skills = "inherit"`, parent skills are prepended; child [[skill]] entries follow
+        let parent = ParentConfig {
+            model: Some(RawModel {
+                name: "anthropic/claude-sonnet-4-6".to_string(),
+                temperature: None,
+            }),
+            tools: vec![],
+            skills: vec![RawSkill {
+                source: "parent/base-skill".to_string(),
+            }],
+            boundary: None,
+            code_mode_enabled: None,
+            dockerfile: None,
+        };
+
+        let toml = r#"
+            name = "child"
+            model = "inherit"
+            skills = "inherit"
+            [prompt]
+            goal = "Do something"
+            [[skill]]
+            source = "child/extra-skill"
+        "#;
+
+        let raw: RawField = toml::from_str(toml).unwrap();
+        let field = convert_raw_field(raw, None, Some(&parent)).unwrap();
+
+        assert_eq!(field.skills.len(), 2);
+        assert_eq!(
+            field.skills[0].slug, "base-skill",
+            "parent skill should come first"
+        );
+        assert_eq!(
+            field.skills[1].slug, "extra-skill",
+            "child skill should follow"
+        );
+    }
+
+    #[test]
+    fn test_skills_without_inherit_ignores_parent() {
+        let parent = ParentConfig {
+            model: Some(RawModel {
+                name: "anthropic/claude-sonnet-4-6".to_string(),
+                temperature: None,
+            }),
+            tools: vec![],
+            skills: vec![RawSkill {
+                source: "parent/should-not-appear".to_string(),
+            }],
+            boundary: None,
+            code_mode_enabled: None,
+            dockerfile: None,
+        };
+
+        let toml = r#"
+            name = "child"
+            model = "inherit"
+            [prompt]
+            goal = "Do something"
+            [[skill]]
+            source = "child/own-skill"
+        "#;
+
+        let raw: RawField = toml::from_str(toml).unwrap();
+        let field = convert_raw_field(raw, None, Some(&parent)).unwrap();
+
+        assert_eq!(
+            field.skills.len(),
+            1,
+            "should not pick up parent skills without inherit"
+        );
+        assert_eq!(field.skills[0].slug, "own-skill");
+    }
+
+    #[test]
+    fn test_local_skill_path_resolved_from_config_dir() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let skill_file = dir.path().join("my-skill.md");
+        std::fs::write(&skill_file, "# My Skill\nDo stuff.").unwrap();
+
+        let field_path = dir.path().join("test.field");
+        let toml = r#"
+            name = "local-skill-test"
+            [model]
+            name = "anthropic/claude-sonnet-4-6"
+            [prompt]
+            goal = "test"
+            [[skill]]
+            source = "./my-skill.md"
+            "#
+        .to_string();
+        std::fs::write(&field_path, &toml).unwrap();
+
+        let field = parse_field_with_parent(&field_path, None).unwrap();
+        assert_eq!(field.skills.len(), 1);
+        let skill = &field.skills[0];
+        assert_eq!(skill.slug, "my-skill");
+        match &skill.kind {
+            portlang_core::SkillSourceKind::Local { path } => {
+                assert!(path.is_absolute());
+                assert_eq!(path, &skill_file);
+            }
+            other => panic!("expected Local, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_invalid_skill_source_fails_parse() {
+        let toml = r#"
+            name = "bad-skill"
+            [model]
+            name = "anthropic/claude-sonnet-4-6"
+            [prompt]
+            goal = "test"
+            [[skill]]
+            source = "not-a-valid-source"
+        "#;
+        // "not-a-valid-source" has no slash — owner/repo requires at least one slash
+        let result = parse_field_from_str(toml);
+        assert!(
+            result.is_err(),
+            "a skill with no slash should fail to parse"
+        );
     }
 }

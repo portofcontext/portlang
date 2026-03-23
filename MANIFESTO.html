@@ -267,16 +267,24 @@
             repeat. This works for short tasks. For anything longer (a multi-file refactor, a complex data pipeline,
             an overnight job), it breaks down in predictable ways.</p>
 
-        <p>Context fills with noise. The agent drifts from its original intent. It finds shortcuts that satisfy the
-            surface objective but not the real one. A common failure: an agent asked to fix a bug modifies the test
-            file to make the tests pass instead. Nothing in the framework stopped it.</p>
+        <p>Context fills with noise across steps. Practitioners call it context rot: as history accumulates,
+            earlier instructions lose influence and the agent drifts. It finds shortcuts that satisfy the surface
+            objective without satisfying the real one. A common failure: an agent asked to fix a bug modifies the
+            test file to make the tests pass. Nothing in the framework stopped it.</p>
+
+        <p>The workarounds tell the story. The Ralph loop, wrapping an agent in a shell restart to periodically
+            flush accumulated context, went viral because it addresses a real problem. Manually pruning conversation
+            history between steps serves the same purpose. Both exist because loop-manager frameworks accumulate
+            context indefinitely, and accumulated context rots.</p>
 
         <p>When these runs fail, there's no structured record of what happened. You're left guessing whether the
             problem was the prompt, the tools, the model, or something else.</p>
 
         <p>The root cause is architectural. These frameworks treat agent behavior as the product of instructions.
-            Better prompt, better behavior. But prompts are suggestions, not guarantees. And for long-running tasks,
-            "suggest better" doesn't scale.</p>
+            Better prompt, better behavior. But prompts are suggestions, not guarantees. Frontier models follow
+            roughly 150–200 instructions reliably. Past that point, a large system prompt, many tool definitions,
+            and accumulated context history crowd each other out. For long-running tasks, "suggest better"
+            doesn't scale.</p>
 
         <p>portlang starts from a different premise: <strong>agent behavior is search through a space you define.
             Your job is engineering the space.</strong></p>
@@ -308,10 +316,12 @@
             seen), generate the next action. Three properties of this setup matter for framework design:</p>
 
         <ul>
-            <li><strong>Sensitivity:</strong> Small changes to context, like different tool ordering, a rephrased goal,
-                or verbose error output, can cause large behavior changes. Sclar et al. (2023) measured accuracy swings
-                of up to 76 percentage points from formatting changes alone. The context isn't just background;
-                every token participates in determining what comes next.</li>
+            <li><strong>Sensitivity and instruction budget:</strong> Small changes to context, like different tool
+                ordering, a rephrased goal, or verbose error output, can cause large behavior changes. Sclar et al.
+                (2023) measured accuracy swings of up to 76 percentage points from formatting changes alone. Every
+                token competes for the model's attention. Frontier models follow roughly 150–200 instructions
+                reliably. Past that point, instructions start dropping out. Smaller context windows produce better
+                results, and the improvement is about attention, not just cost.</li>
 
             <li><strong>Reward-chasing:</strong> The model was trained to satisfy a reward proxy, not your intent
                 specifically. If there's a path that satisfies the proxy without satisfying your actual goal, the
@@ -321,8 +331,9 @@
 
             <li><strong>Context is reality:</strong> The model has no state outside the context window. Whatever it
                 "knows" during a run is whatever appeared in the token stream. Noise (verbose tool output, redundant
-                observations, accumulated error messages) degrades behavior even when useful information is
-                still present.</li>
+                observations, accumulated error messages) degrades behavior even when useful information is still
+                present. Context rot is systematic. As history accumulates, the model's attention shifts toward
+                whatever is loudest in the window. Earlier instructions fade.</li>
         </ul>
 
         <h3>portlang's response</h3>
@@ -361,11 +372,12 @@
         </div>
 
         <div class="principle">
-            <h4>Principle 3: Context is a finite resource</h4>
-            <p>The context window is the model's entire reality. Noise degrades behavior even when useful
-                information is still present. portlang treats context as a hard resource with a ceiling. When it's
-                exhausted, the run ends. No silent compression. Compression is always lossy, and the framework
-                can't know which information matters.</p>
+            <h4>Principle 3: Smaller context windows work better</h4>
+            <p>The context window is the model's entire reality. Context rot degrades behavior even when useful
+                information is still present, because attention spreads thin across a longer window. Past a certain
+                size, more context means worse results. portlang treats context as a hard resource with a ceiling.
+                When exhausted, the run ends. Compression is always lossy and the framework cannot know which
+                information matters, so it does none.</p>
         </div>
 
         <div class="principle">
@@ -491,10 +503,10 @@ description = "Only auth.py and tests/ should be modified"</code></pre>
             "done" means. What it does not define: which files to read first, how to find the bug, what order to
             make changes. The agent decides that. You defined the space.</p>
 
-        <p>The <code>re_observation</code> field deserves attention. The diff is injected before every step,
-            not as a one-time prompt but as a live refresh. The agent always sees the current state of the
-            workspace, not the state it was in three steps ago. This keeps the context accurate as changes
-            accumulate.</p>
+        <p>The <code>re_observation</code> field deserves attention. The diff is injected before every step as
+            a live refresh. Where the Ralph loop works by restarting the session to flush accumulated context,
+            re_observation keeps the session running and pushes only what matters right now. The agent always
+            has current workspace state. Context does not accumulate.</p>
 
         <p>The two verifiers together close an obvious escape hatch: tests pass, and the test files themselves
             weren't modified to make them pass. Neither check alone is sufficient.</p>
@@ -530,10 +542,10 @@ portlang reflect &lt;trajectory-id&gt;       # analyze any past run</code></pre>
         <h3>Convergence measurement</h3>
 
         <p><code>portlang converge -n N</code> runs a field N times and reports the convergence rate: what
-            fraction of runs pass all verifiers. This is the right reliability metric for non-deterministic
-            systems. Not "did it work this time" but "what's the success rate across many runs." After reflecting
-            on failures and adjusting the field, run again. The convergence rate tells you whether the change
-            helped.</p>
+            fraction of runs pass all verifiers. For non-deterministic systems, this is the reliability metric
+            that matters. "Did it work this time" is the wrong question. 60% convergence is not a production
+            number, even if the best runs look great. Tighten boundaries, simplify re-observations, clarify
+            verifiers, then run again. The convergence rate tells you whether the change helped.</p>
 
         <h3>Reflection</h3>
 

@@ -258,7 +258,7 @@ fn interactive_replay(trajectory: portlang_core::Trajectory) -> Result<()> {
 
         match input.as_str() {
             "n" | "next" => {
-                if session.next().is_none() && session.is_at_end() {
+                if session.next_step().is_none() && session.is_at_end() {
                     println!("Already at the end.");
                 }
             }
@@ -287,7 +287,7 @@ fn interactive_replay(trajectory: portlang_core::Trajectory) -> Result<()> {
                 break;
             }
             "" => {
-                if session.next().is_none() && session.is_at_end() {
+                if session.next_step().is_none() && session.is_at_end() {
                     println!("Already at the end.");
                 }
             }

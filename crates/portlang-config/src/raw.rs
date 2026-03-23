@@ -98,6 +98,14 @@ pub struct RawCodeMode {
     pub enabled: bool,
 }
 
+/// A single [[skill]] entry in a .field file
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawSkill {
+    /// Source string: `owner/repo`, `github:owner/repo`, `clawhub:name`, `./local.md`, etc.
+    pub source: String,
+}
+
 /// Raw TOML structure for a parent field.toml (suite-level template).
 /// Intentionally lenient — ignores unknown fields so a full field.toml
 /// can also serve as a parent config without error.
@@ -109,6 +117,8 @@ pub struct RawParentConfig {
     pub code_mode: Option<RawCodeMode>,
     #[serde(default)]
     pub tool: Vec<RawTool>,
+    #[serde(default)]
+    pub skill: Vec<RawSkill>,
     #[serde(default)]
     pub boundary: Option<RawBoundary>,
     #[serde(default)]
@@ -154,6 +164,12 @@ pub struct RawField {
     /// `tools = "inherit"` — inherit parent's [[tool]] list
     #[serde(default)]
     pub tools: Option<InheritKeyword>,
+    /// `[[skill]]` array of tables
+    #[serde(default)]
+    pub skill: Vec<RawSkill>,
+    /// `skills = "inherit"` — inherit parent's [[skill]] list
+    #[serde(default)]
+    pub skills: Option<InheritKeyword>,
     /// Either `code_mode = "inherit"` or `[code_mode]\nenabled = true`
     #[serde(default)]
     pub code_mode: Option<InheritOr<RawCodeMode>>,

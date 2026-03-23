@@ -4937,10 +4937,13 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "chrono",
+ "dirs",
  "portlang-core",
  "portlang-runtime",
+ "portlang-skills",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
 ]
@@ -4960,6 +4963,7 @@ dependencies = [
  "portlang-config",
  "portlang-core",
  "portlang-provider-anthropic",
+ "portlang-skills",
  "regex",
  "reqwest 0.13.2",
  "rmcp",
@@ -4973,6 +4977,22 @@ dependencies = [
  "tracing",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "portlang-skills"
+version = "0.1.13"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "filetime",
+ "portlang-core",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -15,6 +15,8 @@
 
 Most agent frameworks manage loops. portlang manages environments. You declare what the agent can access, what counts as success, and hard limits on cost and scope. The runtime enforces all of it inside an isolated container and records every step.
 
+What enters the context window determines how reliably your agent works. portlang makes the key levers explicit: `re_observation` pushes current state before each step rather than letting context rot build up, `[[verifier]]` gives the agent concrete pass/fail results rather than raw output to parse, and `[boundary]` caps tokens and steps before the model's instruction budget runs out.
+
 ## Install
 
 ```bash
@@ -47,7 +49,7 @@ temperature = 0.2
 goal = """
 There is a bug in src/ causing the test suite to fail. Find it and fix it.
 """
-# Inject live test output before every step — agent always knows what's failing
+# Fresh test results before every step, not accumulated
 re_observation = ["cd /workspace && python -m pytest tests/ -q 2>&1 | tail -10"]
 
 [environment]
@@ -66,7 +68,7 @@ command = "cd /workspace && python -m pytest tests/ -q"
 
 ```bash
 portlang run fix-bug.field
-portlang converge fix-bug.field -n 20   # run 20x — what % does it converge?
+portlang converge fix-bug.field -n 20   # run 20 times, measure convergence before shipping
 portlang view trajectory <id>           # replay any run step-by-step
 ```
 
@@ -94,12 +96,33 @@ portlang view eval <eval-id>
 
 | Primitive | Purpose |
 |-----------|---------|
-| **Field** | Self-contained unit of work — model, tools, goal, constraints, and verifiers in one file. Named after the physics concept: a region of space with properties defined at every point. The agent moves through the field; the field determines what's possible. |
+| **Field** | Self-contained unit of work: model, tools, goal, constraints, and verifiers in one file. Named after the physics concept, a region of space with properties defined at every point. The agent moves through it and the field determines what's possible. |
 | **Vars** | Template variables declared in `[vars]`, interpolated via `{{ name }}`, supplied at runtime with `--var` |
-| **Boundary** | Hard limits enforced by sandbox — write paths, network policy, step/cost/token caps |
-| **Verifier** | Success criteria that run on stop or on each tool call; failure feedback enters the context window |
-| **Trajectory** | Complete event log — every step, tool call, cost, and outcome; replayable and diffable |
+| **Boundary** | Hard limits enforced by sandbox: write paths, network policy, step/cost/token caps. The token ceiling keeps the instruction budget under control. |
+| **Verifier** | Deterministic pass/fail signals that run on stop or on each tool call. Gives the agent concrete results rather than raw output to parse. |
+| **Trajectory** | Complete event log of every step, tool call, cost, and outcome. Replayable and diffable. |
 | **Eval** | Batch run of multiple fields with a persistent ID, resumable on failure |
+| **Skills** | Prompt packs loaded into the agent's context from local files, GitHub repos, or ClawHub |
+
+### Skills
+
+Declare skills in any field. The agent receives a brief metadata summary in its system prompt and reads the full guide on-demand from the workspace filesystem.
+
+```toml
+[[skill]]
+source = "./skills/my-guide.md"        # local .md file
+
+[[skill]]
+source = "./skills/my-skill"           # local directory: SKILL.md + scripts/, references/, assets/ copied to workspace
+
+[[skill]]
+source = "owner/repo"                  # GitHub (skills.sh-compatible shorthand)
+
+[[skill]]
+source = "clawhub:name"                # ClawHub registry
+```
+
+You can reference a skill in the goal with `$slug` — portlang detects invocations and records them in the trajectory. See [examples/07-skills/](examples/07-skills/).
 
 ## Security
 

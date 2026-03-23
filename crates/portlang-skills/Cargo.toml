@@ -1,23 +1,22 @@
 [package]
-name = "portlang-runner-claudecode"
+name = "portlang-skills"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+
+[dev-dependencies]
+tempfile = "3.10"
+filetime = "0.2"
+tokio = { workspace = true }
 
 [dependencies]
-base64 = "0.22.1"
+portlang-core = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-chrono = { workspace = true }
+reqwest = { workspace = true }
 tracing = { workspace = true }
-portlang-core = { workspace = true }
-portlang-runtime = { workspace = true }
-portlang-skills = { workspace = true }
 dirs = "6"
-
-[dev-dependencies]
-tempfile = "3.10"
-tokio = { workspace = true }

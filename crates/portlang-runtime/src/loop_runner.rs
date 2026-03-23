@@ -8,6 +8,9 @@ use crate::tools::{
     BashHandler, GlobHandler, PythonToolHandler, ReadHandler, ShellCommandHandler, ToolRegistry,
     WriteHandler,
 };
+use portlang_skills::{
+    build_skill_metadata_block, detect_skill_invocations, write_skills_to_workspace, SkillResolver,
+};
 
 #[cfg(feature = "code-mode")]
 use crate::tools::{CodeModeCallback, CodeModeHandler};
@@ -472,8 +475,31 @@ async fn stage_input(workspace_root: &str, input: &InputSource) -> anyhow::Resul
     }
 }
 
-/// Run a field configuration
+/// Run a field configuration.
+///
+/// Resolves skills, writes them to the workspace, injects metadata into the system
+/// prompt, runs the agent loop, then records skill availability and invocations on
+/// the trajectory.
 pub async fn run_field(
+    field: &Field,
+    provider: &dyn ModelProvider,
+    ctx: &RuntimeContext,
+) -> anyhow::Result<Trajectory> {
+    let mut trajectory = run_field_inner(field, provider, ctx).await?;
+
+    // Post-run: record skill availability and heuristic invocations on trajectory.
+    // Uses field.skills (slugs only) — no need for resolved content.
+    if !field.skills.is_empty() {
+        let available: Vec<String> = field.skills.iter().map(|s| s.slug.clone()).collect();
+        let invoked =
+            detect_skill_invocations(&trajectory.steps, &field.prompt.goal, &field.skills);
+        trajectory.set_skills(available, invoked);
+    }
+
+    Ok(trajectory)
+}
+
+async fn run_field_inner(
     field: &Field,
     provider: &dyn ModelProvider,
     ctx: &RuntimeContext,
@@ -498,10 +524,27 @@ pub async fn run_field(
     let agent_view = prepare_agent_view(field).await?;
     let AgentView {
         tools,
-        system_prompt: system_prompt_text,
+        system_prompt: mut system_prompt_text,
         env_context: _,
         sandbox,
     } = agent_view;
+
+    // --- Resolve skills and write to workspace ---
+    let mut skills = field.skills.clone();
+    if !skills.is_empty() {
+        let resolver = SkillResolver::default();
+        if let Err(e) = resolver.resolve_all(&mut skills).await {
+            tracing::warn!("Skill resolution encountered errors: {}", e);
+        }
+        let workspace = std::path::Path::new(&field.environment.root);
+        if let Err(e) = write_skills_to_workspace(&skills, workspace).await {
+            tracing::warn!("Failed to write skills to workspace: {}", e);
+        }
+        let skill_metadata = build_skill_metadata_block(&skills);
+        if !skill_metadata.is_empty() {
+            system_prompt_text = format!("{}\n\n{}", skill_metadata, system_prompt_text);
+        }
+    }
 
     // Build McpServer list for cleanup later
     let mcp_servers: Vec<McpServer> = field

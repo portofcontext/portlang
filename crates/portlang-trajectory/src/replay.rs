@@ -50,7 +50,7 @@ impl ReplaySession {
     }
 
     /// Move to the next step
-    pub fn next(&mut self) -> Option<&TrajectoryStep> {
+    pub fn next_step(&mut self) -> Option<&TrajectoryStep> {
         if self.current_step < self.trajectory.step_count() {
             self.current_step += 1;
         }
@@ -170,6 +170,16 @@ pub fn format_summary(trajectory: &Trajectory) -> String {
         output.push_str(&format!("Outcome: {}\n", outcome.description()));
     }
 
+    if !trajectory.skills_available.is_empty() {
+        let available = trajectory.skills_available.join(", ");
+        if trajectory.skills_invoked.is_empty() {
+            output.push_str(&format!("Skills: {} (none invoked)\n", available));
+        } else {
+            let invoked = trajectory.skills_invoked.join(", ");
+            output.push_str(&format!("Skills: {}  (invoked: {})\n", available, invoked));
+        }
+    }
+
     output.push_str("\n--- Steps ---\n");
 
     for step in &trajectory.steps {
@@ -229,11 +239,11 @@ mod tests {
         assert!(session.is_at_start());
 
         // Move to next
-        session.next();
+        session.next_step();
         assert_eq!(session.current_step_number(), 1);
 
         // Move to next again
-        session.next();
+        session.next_step();
         assert_eq!(session.current_step_number(), 2);
         assert!(session.is_at_end());
 

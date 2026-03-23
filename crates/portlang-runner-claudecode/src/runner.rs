@@ -2,10 +2,13 @@ use crate::settings::build_all_mcp_config;
 use crate::stream_parser::StreamAccumulator;
 use anyhow::{Context, Result};
 use portlang_core::{
-    Action, Cost, Environment, Field, InputSource, RunOutcome, RuntimeContext, Trajectory,
+    Action, Cost, Environment, Field, InputSource, RunOutcome, RuntimeContext, Skill, Trajectory,
     TrajectoryStep, VerifierAlgorithm, VerifierTrigger,
 };
 use portlang_runtime::{run_verifiers, sandbox::create_sandbox, tools::ToolRegistry};
+use portlang_skills::{
+    build_skill_metadata_block, detect_skill_invocations, write_skills_to_workspace, SkillResolver,
+};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -50,6 +53,15 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
         .ok_or_else(|| anyhow::anyhow!("Sandbox did not provide a container ID"))?
         .to_string();
 
+    // --- 2b. Resolve skills ---
+    let mut skills = field.skills.clone();
+    if !skills.is_empty() {
+        let resolver = SkillResolver::default();
+        if let Err(e) = resolver.resolve_all(&mut skills).await {
+            tracing::warn!("Skill resolution encountered errors: {}", e);
+        }
+    }
+
     // --- 3. Prepare trajectory skeleton ---
     let mut trajectory = Trajectory::new(field.name.clone()).with_context(
         field.prompt.goal.clone(),
@@ -65,16 +77,29 @@ pub async fn run_field_with_claude_code(field: &Field, ctx: &RuntimeContext) -> 
         build_goal_with_output_schema(&field.prompt.goal, field.boundary.output_schema.as_ref());
     write_workspace_file(&workspace, ".portlang_cc_goal.txt", &goal)?;
 
-    // Always write a system prompt. When the field doesn't provide one we inject
-    // a minimal baseline that covers Claude Code quirks (e.g. Write requires
-    // reading first — use Bash to create new files).
+    // --- 4a. Write skill files into workspace ---
+    // Each resolved skill is written to .portlang_skills/<slug>/SKILL.md so Claude
+    // can read them on-demand via bash (Anthropic progressive disclosure pattern).
+    write_skills_to_workspace(&skills, &workspace).await?;
+
+    // Also register skills in ~/.claude/skills/ so Claude Code's native $slug
+    // invocation shorthand works in the goal text.
+    let registered_skills = register_skills_with_claude_code(&skills).await;
+
+    // --- 4b. Build system prompt with skill metadata ---
+    // Following Anthropic's Agent Skills architecture:
+    // - Only skill name + description goes in the system prompt (~100 tokens/skill)
+    // - Full SKILL.md content lives on the workspace filesystem, read on-demand
     const BASELINE_SYSTEM: &str = "\
 To create a new file use Bash (e.g. `echo ... > file` or `tee file`). \
 The Write tool requires the file to already exist and to have been read first.";
 
-    let system_text = match &field.prompt.system {
-        Some(s) => format!("{}\n\n{}", s, BASELINE_SYSTEM),
-        None => BASELINE_SYSTEM.to_string(),
+    let skill_metadata = build_skill_metadata_block(&skills);
+    let system_text = match (&field.prompt.system, skill_metadata.is_empty()) {
+        (Some(s), false) => format!("{}\n\n{}\n\n{}", s, skill_metadata, BASELINE_SYSTEM),
+        (Some(s), true) => format!("{}\n\n{}", s, BASELINE_SYSTEM),
+        (None, false) => format!("{}\n\n{}", skill_metadata, BASELINE_SYSTEM),
+        (None, true) => BASELINE_SYSTEM.to_string(),
     };
     write_workspace_file(&workspace, ".portlang_cc_system.txt", &system_text)?;
     let has_system = true;
@@ -329,6 +354,14 @@ The Write tool requires the file to already exist and to have been read first.";
         }
     }
 
+    // --- 9b. Populate trajectory with skill data ---
+    if !skills.is_empty() {
+        let skills_available: Vec<String> = skills.iter().map(|s| s.slug.clone()).collect();
+        let skills_invoked =
+            detect_skill_invocations(&trajectory.steps, &field.prompt.goal, &skills);
+        trajectory.set_skills(skills_available, skills_invoked);
+    }
+
     // --- 10. Cleanup temp files ---
     for name in &[
         ".portlang_cc_goal.txt",
@@ -349,6 +382,10 @@ The Write tool requires the file to already exist and to have been read first.";
     if let Some(ref name) = boundary_hook_file {
         let _ = std::fs::remove_file(workspace.join(name));
     }
+    // Cleanup skill files from workspace
+    let _ = tokio::fs::remove_dir_all(workspace.join(".portlang_skills")).await;
+    // Cleanup registered Claude Code skills
+    cleanup_registered_skills(&registered_skills).await;
 
     Ok(trajectory)
 }
@@ -762,4 +799,321 @@ fn build_runner_script(
     script.push_str(&claude_cmd);
     script.push('\n');
     script
+}
+
+// ---------------------------------------------------------------------------
+// Skills helpers (claude-code specific — shared helpers live in portlang-skills)
+// ---------------------------------------------------------------------------
+
+/// Register skills in `~/.claude/skills/<slug>/SKILL.md` so Claude Code's
+/// native `$slug` invocation shorthand works in goal/prompt text.
+/// Returns the list of slugs that were successfully registered for later cleanup.
+async fn register_skills_with_claude_code(skills: &[Skill]) -> Vec<String> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    let cc_skills_dir = home.join(".claude").join("skills");
+    let mut registered = Vec::new();
+
+    for skill in skills {
+        let Some(ref content) = skill.content else {
+            continue;
+        };
+        let skill_dir = cc_skills_dir.join(&skill.slug);
+        if let Err(e) = tokio::fs::create_dir_all(&skill_dir).await {
+            tracing::warn!("Failed to create CC skill dir for {}: {}", skill.slug, e);
+            continue;
+        }
+        let skill_path = skill_dir.join("SKILL.md");
+        if let Err(e) = tokio::fs::write(&skill_path, content).await {
+            tracing::warn!("Failed to write CC skill for {}: {}", skill.slug, e);
+            continue;
+        }
+        registered.push(skill.slug.clone());
+    }
+    registered
+}
+
+/// Remove skills that were temporarily registered in `~/.claude/skills/`.
+async fn cleanup_registered_skills(slugs: &[String]) {
+    let Some(home) = dirs::home_dir() else {
+        return;
+    };
+    let cc_skills_dir = home.join(".claude").join("skills");
+    for slug in slugs {
+        let skill_dir = cc_skills_dir.join(slug);
+        if let Err(e) = tokio::fs::remove_dir_all(&skill_dir).await {
+            tracing::debug!("Failed to clean up CC skill {}: {}", slug, e);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use portlang_core::{Cost, SkillSourceKind};
+    use portlang_skills::{
+        build_skill_metadata_block, detect_skill_invocations, extract_skill_description,
+        write_skills_to_workspace,
+    };
+    use std::path::PathBuf;
+
+    // --- helpers ---
+
+    fn make_skill(slug: &str, content: Option<&str>) -> Skill {
+        Skill {
+            source: slug.to_string(),
+            kind: SkillSourceKind::Local {
+                path: PathBuf::from(format!("/fake/{}.md", slug)),
+            },
+            slug: slug.to_string(),
+            content: content.map(|s| s.to_string()),
+            resources: Vec::new(),
+        }
+    }
+
+    fn text_step(text: &str) -> TrajectoryStep {
+        TrajectoryStep::new(
+            1,
+            Action::TextOutput {
+                text: text.to_string(),
+            },
+            String::new(),
+            false,
+            Cost::ZERO,
+            0,
+        )
+    }
+
+    fn tool_step(tool: &str, input: serde_json::Value) -> TrajectoryStep {
+        TrajectoryStep::new(
+            2,
+            Action::ToolCall {
+                tool: tool.to_string().into(),
+                input,
+            },
+            String::new(),
+            false,
+            Cost::ZERO,
+            0,
+        )
+    }
+
+    // --- detect_skill_invocations ---
+
+    #[test]
+    fn detect_dollar_slug_in_goal() {
+        let skills = vec![make_skill("my-skill", Some("content"))];
+        let result = detect_skill_invocations(&[], "$my-skill do the thing", &skills);
+        assert_eq!(result, vec!["my-skill"]);
+    }
+
+    #[test]
+    fn detect_cat_pattern_in_goal() {
+        let skills = vec![make_skill("my-skill", Some("content"))];
+        let result =
+            detect_skill_invocations(&[], "cat .portlang_skills/my-skill/SKILL.md", &skills);
+        assert_eq!(result, vec!["my-skill"]);
+    }
+
+    #[test]
+    fn detect_dollar_slug_in_text_step() {
+        let skills = vec![make_skill("analyze", Some("content"))];
+        let steps = vec![text_step("I'll use $analyze to check this")];
+        let result = detect_skill_invocations(&steps, "do the task", &skills);
+        assert_eq!(result, vec!["analyze"]);
+    }
+
+    #[test]
+    fn detect_cat_pattern_in_tool_call_input() {
+        let skills = vec![make_skill("refactor", Some("content"))];
+        let input = serde_json::json!({"command": "cat .portlang_skills/refactor/SKILL.md"});
+        let steps = vec![tool_step("Bash", input)];
+        let result = detect_skill_invocations(&steps, "refactor the code", &skills);
+        assert_eq!(result, vec!["refactor"]);
+    }
+
+    #[test]
+    fn no_false_positive_partial_slug_match() {
+        // "skill" should not match "$my-skill"
+        let skills = vec![make_skill("my-skill", Some("content"))];
+        let steps = vec![text_step("I have skill in coding")];
+        let result = detect_skill_invocations(&steps, "show your skill", &skills);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn no_false_positive_wrong_slug() {
+        let skills = vec![make_skill("skill-a", Some("c"))];
+        let steps = vec![text_step("I'll use $skill-b here")];
+        let result = detect_skill_invocations(&steps, "$skill-b run", &skills);
+        // skill-b is not in the declared skills list → not detected
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn detect_multiple_skills_only_matching_ones() {
+        let skills = vec![
+            make_skill("alpha", Some("c1")),
+            make_skill("beta", Some("c2")),
+            make_skill("gamma", Some("c3")),
+        ];
+        let steps = vec![text_step("using $alpha here"), text_step("and $gamma too")];
+        let mut result = detect_skill_invocations(&steps, "goal", &skills);
+        result.sort();
+        assert_eq!(result, vec!["alpha", "gamma"]);
+    }
+
+    #[test]
+    fn unresolved_skill_still_detected_via_dollar_slug() {
+        // Detection scans goal/steps by slug regardless of whether content is Some
+        let skills = vec![make_skill("raw", None)];
+        let result = detect_skill_invocations(&[], "$raw", &skills);
+        assert_eq!(result, vec!["raw"]);
+    }
+
+    // --- extract_skill_description ---
+
+    #[test]
+    fn extract_description_from_frontmatter() {
+        let content = "---\nname: My Skill\ndescription: Does useful things\n---\n# Body";
+        assert_eq!(
+            extract_skill_description(content),
+            Some("Does useful things".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_description_quoted_value() {
+        let content = "---\ndescription: \"Handles refactoring tasks\"\n---\n";
+        assert_eq!(
+            extract_skill_description(content),
+            Some("Handles refactoring tasks".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_description_missing_returns_none() {
+        let content = "---\nname: My Skill\nversion: 1.0\n---\n# Body";
+        assert_eq!(extract_skill_description(content), None);
+    }
+
+    #[test]
+    fn extract_description_no_frontmatter_returns_none() {
+        let content = "# Just a markdown file\nNo frontmatter here.";
+        assert_eq!(extract_skill_description(content), None);
+    }
+
+    #[test]
+    fn extract_description_empty_content_returns_none() {
+        assert_eq!(extract_skill_description(""), None);
+    }
+
+    // --- build_skill_metadata_block ---
+
+    #[test]
+    fn metadata_block_empty_when_no_skills() {
+        assert_eq!(build_skill_metadata_block(&[]), "");
+    }
+
+    #[test]
+    fn metadata_block_empty_when_all_unresolved() {
+        let skills = vec![make_skill("foo", None), make_skill("bar", None)];
+        assert_eq!(build_skill_metadata_block(&skills), "");
+    }
+
+    #[test]
+    fn metadata_block_contains_slug_and_path() {
+        let content = "---\ndescription: Analyzes code quality\n---\n# Body";
+        let skills = vec![make_skill("quality-check", Some(content))];
+        let block = build_skill_metadata_block(&skills);
+        assert!(block.contains("quality-check"));
+        assert!(block.contains("/workspace/.portlang_skills/quality-check/SKILL.md"));
+        assert!(block.contains("Analyzes code quality"));
+    }
+
+    #[test]
+    fn metadata_block_omits_skill_without_description() {
+        // Spec: a skill with no description field must be omitted from the catalog
+        // (description is essential — without it the agent cannot know when to activate).
+        let skills = vec![make_skill(
+            "no-desc-skill",
+            Some("# Just content, no frontmatter"),
+        )];
+        let block = build_skill_metadata_block(&skills);
+        assert!(
+            block.is_empty(),
+            "skill lacking a description must not appear in catalog"
+        );
+    }
+
+    #[test]
+    fn metadata_block_skips_unresolved_but_includes_resolved() {
+        let skills = vec![
+            make_skill("resolved", Some("---\ndescription: Works great\n---\n")),
+            make_skill("unresolved", None),
+        ];
+        let block = build_skill_metadata_block(&skills);
+        assert!(block.contains("resolved"));
+        assert!(!block.contains("unresolved"));
+    }
+
+    // --- write_skills_to_workspace ---
+
+    #[tokio::test]
+    async fn write_skills_creates_skill_md_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path();
+
+        let skills = vec![
+            make_skill("skill-a", Some("# Skill A content")),
+            make_skill("skill-b", Some("# Skill B content")),
+        ];
+
+        write_skills_to_workspace(&skills, workspace).await.unwrap();
+
+        let path_a = workspace.join(".portlang_skills/skill-a/SKILL.md");
+        let path_b = workspace.join(".portlang_skills/skill-b/SKILL.md");
+        assert!(path_a.exists(), "SKILL.md for skill-a should exist");
+        assert!(path_b.exists(), "SKILL.md for skill-b should exist");
+        assert_eq!(
+            std::fs::read_to_string(&path_a).unwrap(),
+            "# Skill A content"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path_b).unwrap(),
+            "# Skill B content"
+        );
+    }
+
+    #[tokio::test]
+    async fn write_skills_skips_unresolved() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path();
+
+        let skills = vec![
+            make_skill("present", Some("content")),
+            make_skill("absent", None),
+        ];
+
+        write_skills_to_workspace(&skills, workspace).await.unwrap();
+
+        assert!(workspace.join(".portlang_skills/present/SKILL.md").exists());
+        assert!(!workspace.join(".portlang_skills/absent").exists());
+    }
+
+    #[tokio::test]
+    async fn write_skills_no_op_when_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path();
+
+        write_skills_to_workspace(&[], workspace).await.unwrap();
+
+        // No .portlang_skills directory should be created
+        assert!(!workspace.join(".portlang_skills").exists());
+    }
 }

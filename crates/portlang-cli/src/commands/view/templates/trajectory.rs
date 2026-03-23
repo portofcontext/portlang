@@ -137,6 +137,41 @@ fn render_trajectory_header(trajectory: &Trajectory) -> String {
         badges_html
     );
 
+    // Skills panel — shown only when skills were declared for this run
+    let skills_html = if !trajectory.skills_available.is_empty() {
+        let skill_badges: String = trajectory
+            .skills_available
+            .iter()
+            .map(|slug| {
+                let invoked = trajectory.skills_invoked.contains(slug);
+                let style = if invoked {
+                    "background:#d1fae5;color:#065f46;border:1px solid #6ee7b7"
+                } else {
+                    "background:#f3f4f6;color:#374151;border:1px solid #d1d5db"
+                };
+                let indicator = if invoked { " ✓" } else { "" };
+                format!(
+                    r#"<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.8rem;{}">{}{}</span>"#,
+                    style,
+                    escape_html(slug),
+                    indicator
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!(
+            r#"<div class="info-item" style="grid-column: 1 / -1;">
+    <span class="info-label">Skills</span>
+    <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+        {}
+    </div>
+</div>"#,
+            skill_badges
+        )
+    } else {
+        String::new()
+    };
+
     format!(
         r#"<h1>Trajectory: {}</h1>
 <div class="section">
@@ -166,6 +201,7 @@ fn render_trajectory_header(trajectory: &Trajectory) -> String {
             <span class="info-value">{}</span>
         </div>
         {}
+        {}
     </div>
 </div>"#,
         escape_html(&trajectory.field_name),
@@ -177,7 +213,8 @@ fn render_trajectory_header(trajectory: &Trajectory) -> String {
         trajectory.total_cost.to_dollars(),
         trajectory.total_tokens,
         duration,
-        agent_context_html
+        agent_context_html,
+        skills_html
     )
 }
 

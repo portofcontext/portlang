@@ -93,6 +93,14 @@ pub struct Trajectory {
     /// Structured output from the agent (if output_schema was defined)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub structured_output: Option<serde_json::Value>,
+
+    /// Slugs of skills declared in the field for this run
+    #[serde(default)]
+    pub skills_available: Vec<String>,
+
+    /// Slugs of skills heuristically detected as invoked during the run
+    #[serde(default)]
+    pub skills_invoked: Vec<String>,
 }
 
 impl Trajectory {
@@ -115,6 +123,8 @@ impl Trajectory {
             outcome: None,
             output_schema: None,
             structured_output: None,
+            skills_available: Vec::new(),
+            skills_invoked: Vec::new(),
         }
     }
 
@@ -151,6 +161,11 @@ impl Trajectory {
 
     pub fn set_structured_output(&mut self, output: serde_json::Value) {
         self.structured_output = Some(output);
+    }
+
+    pub fn set_skills(&mut self, available: Vec<String>, invoked: Vec<String>) {
+        self.skills_available = available;
+        self.skills_invoked = invoked;
     }
 
     pub fn step_count(&self) -> usize {

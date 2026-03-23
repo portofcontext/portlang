@@ -18,12 +18,37 @@ pub async fn reflect_command(
     trajectories: usize,
     runner: String,
 ) -> Result<()> {
-    let field_name = field.context("--field is required")?;
+    let home = dirs::home_dir().context("cannot determine home directory")?;
+    let trajectories_dir = home.join(".portlang").join("trajectories");
+
+    // ── Resolve field name ────────────────────────────────────────────────────
+    let field_name = if let Some(f) = field {
+        f
+    } else if let Some(ref tid) = trajectory_id {
+        // Search all field directories for one containing this trajectory ID
+        let mut found: Option<String> = None;
+        if trajectories_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&trajectories_dir) {
+                for entry in entries.flatten() {
+                    if entry.path().is_dir() {
+                        let candidate = entry.path().join(format!("{tid}.json"));
+                        if candidate.exists() {
+                            if let Some(name) = entry.file_name().to_str() {
+                                found = Some(name.to_string());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        found.with_context(|| format!("trajectory \"{}\" not found in any field", tid))?
+    } else {
+        anyhow::bail!("--field is required when --trajectory-id is not specified");
+    };
 
     // ── Validate field name exists ────────────────────────────────────────────
     {
-        let home = dirs::home_dir().context("cannot determine home directory")?;
-        let trajectories_dir = home.join(".portlang").join("trajectories");
         let field_dir = trajectories_dir.join(&field_name);
 
         if !field_dir.exists() {
@@ -74,9 +99,7 @@ pub async fn reflect_command(
     }
 
     // ── Stage built-in Python tools to ~/.portlang/builtin/reflect/tools/ ───
-    let portlang_root = dirs::home_dir()
-        .context("cannot determine home directory")?
-        .join(".portlang");
+    let portlang_root = home.join(".portlang");
     let tools_dir = portlang_root.join("builtin/reflect/tools");
     std::fs::create_dir_all(&tools_dir)?;
     std::fs::write(tools_dir.join("list_trajectories.py"), LIST_TRAJECTORIES_PY)?;

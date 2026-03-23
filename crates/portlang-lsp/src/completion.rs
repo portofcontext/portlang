@@ -10,6 +10,7 @@ pub fn completions_at(text: &str, pos: Position) -> Vec<CompletionItem> {
         Some("boundary") => boundary_completions(),
         Some("verifier") => verifier_completions(),
         Some("tool") => tool_completions(),
+        Some("skill") => skill_completions(),
         Some("vars") => vars_completions(),
         _ => vec![],
     }
@@ -66,6 +67,8 @@ fn top_level_completions() -> Vec<CompletionItem> {
         snippet("model = \"inherit\"", "Inherit model from parent", "model = \"inherit\""),
         snippet("boundary = \"inherit\"", "Inherit boundary from parent", "boundary = \"inherit\""),
         snippet("tools = \"inherit\"", "Inherit tools from parent", "tools = \"inherit\""),
+        snippet("skills = \"inherit\"", "Inherit skills from parent", "skills = \"inherit\""),
+        snippet("[[skill]]", "Add a skill", "[[skill]]\nsource = \"${1:owner/repo}\""),
     ]
 }
 
@@ -235,6 +238,23 @@ fn tool_completions() -> Vec<CompletionItem> {
             "Environment variables",
             "env = { ${1:KEY} = \"${2:\\${ENV_VAR}}\" }",
         ),
+    ]
+}
+
+fn skill_completions() -> Vec<CompletionItem> {
+    vec![
+        snippet(
+            "source",
+            "Skill source (GitHub shorthand, URL, local, or clawhub:)",
+            "source = \"${1|owner/repo,github:owner/repo,clawhub:name,./local-skill.md|}\"",
+        ),
+        keyword("owner/repo", "GitHub shorthand (e.g. anthropics/my-skill)"),
+        keyword("github:", "GitHub with explicit prefix (github:owner/repo)"),
+        keyword(
+            "clawhub:",
+            "ClawHub registry (clawhub:name or clawhub:org/name)",
+        ),
+        keyword("./", "Local file relative to .field file"),
     ]
 }
 

@@ -50,6 +50,20 @@ output_schema = """{ ... }"""   # optional; JSON schema as a JSON string; multi-
 
 tools = "inherit"               # optional; inherit [[tool]] list from parent instead of defining inline
 
+[[skill]]                       # repeatable; zero or more; declare skills to load into the agent's context
+source = "owner/repo"           # GitHub shorthand (portable with `npx skills add owner/repo`)
+# source = "owner/repo/path"    # with subpath into repo
+# source = "owner/repo@name"    # select a specific skill within a multi-skill repo
+# source = "github:owner/repo"  # explicit github: prefix (equivalent to shorthand)
+# source = "https://github.com/owner/repo/tree/main/skills/my-skill"  # full URL with branch/path
+# source = "clawhub:name"       # ClawHub registry (clawhub:name or clawhub:org/name)
+# source = "https://example.com" # well-known: fetches /.well-known/skills/index.json
+# source = "./local-skill.md"   # local .md file relative to .field file
+# source = "./skills/my-skill"  # local directory: must contain SKILL.md; scripts/, references/, assets/ copied to workspace
+# source = "git@github.com:owner/repo.git"  # SSH git URL
+
+skills = "inherit"              # optional; inherit [[skill]] list from parent instead of defining inline
+
 [[tool]]                        # repeatable; zero or more; type = "python" | "shell" | "mcp"
 type = "python"                 # --- python tool ---
 file = "./tools/calc.py"        # path to Python file (required)

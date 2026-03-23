@@ -443,7 +443,13 @@ async fn main() {
         } => match build_runtime_context(var, vars, input) {
             Ok(ctx) => {
                 commands::run::run_command(
-                    field_path, parent_field, ctx, runner, dry_run, runs, auto_reflect,
+                    field_path,
+                    parent_field,
+                    ctx,
+                    runner,
+                    dry_run,
+                    runs,
+                    auto_reflect,
                 )
                 .await
             }

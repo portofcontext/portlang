@@ -14,6 +14,7 @@ code-mode = ["dep:pctx_code_mode"]
 portlang-core = { workspace = true }
 portlang-config = { workspace = true }
 portlang-provider-anthropic = { workspace = true }
+portlang-skills = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 anyhow = { workspace = true }

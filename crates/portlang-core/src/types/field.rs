@@ -1,4 +1,7 @@
-use super::{boundary::Boundary, environment::Environment, model::ModelSpec, verifier::Verifier};
+use super::{
+    boundary::Boundary, environment::Environment, model::ModelSpec, skill::Skill,
+    verifier::Verifier,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -173,6 +176,10 @@ pub struct Field {
     #[serde(default)]
     pub tools: Vec<Tool>,
 
+    /// Skills to load into the agent's context
+    #[serde(default)]
+    pub skills: Vec<Skill>,
+
     /// Verifiers to run during execution
     #[serde(default)]
     pub verifiers: Vec<Verifier>,
@@ -201,6 +208,7 @@ impl Field {
             environment,
             boundary: Boundary::default(),
             tools: Vec::new(),
+            skills: Vec::new(),
             verifiers: Vec::new(),
             vars: HashMap::new(),
             config_dir: None,

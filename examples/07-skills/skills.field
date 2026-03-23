@@ -1,0 +1,41 @@
+name = "skills-demo"
+description = "Demonstrates [[skill]] declarations — agent loads a local code review guide and applies it"
+
+[model]
+name = "anthropic/claude-sonnet-4.6"
+temperature = 0.5
+
+[prompt]
+goal = """
+Review the file `user_service.py` in the workspace using the $code-review skill.
+
+Read the skill guide first, then apply it to produce a structured review.
+Save your review to `review.md` in the workspace.
+"""
+
+[environment]
+root = "./workspace"
+packages = ["python3"]
+
+[boundary]
+network = "deny"
+allow_write = ["review.md"]
+max_tokens = 50000
+max_cost = "$0.50"
+max_steps = 10
+
+# Declare the local code review skill.
+# Skills are injected as metadata in the system prompt; full content is written
+# to /workspace/.portlang_skills/<slug>/SKILL.md for Claude to read on-demand.
+[[skill]]
+source = "./skills/code-review"   # directory skill: SKILL.md + scripts/check.py
+
+# Uncomment to pull a skill directly from GitHub:
+# [[skill]]
+# source = "owner/repo"   # fetches SKILL.md from the repo root
+
+[[verifier]]
+name = "review-written"
+command = "test -f /workspace/review.md && grep -q 'Verdict' /workspace/review.md"
+trigger = "on_stop"
+description = "review.md must exist and contain a Verdict section"
