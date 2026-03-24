@@ -466,15 +466,24 @@ impl ContainerBackend for DockerBackend {
 // HTTP backend
 // ---------------------------------------------------------------------------
 
-/// Backend that speaks a JSON-over-HTTP protocol to a remote shim
+/// Backend that speaks a JSON-over-HTTP protocol to a remote shim.
 ///
 /// All batch ops (build, run, exec, stop) POST `{"op": "...", ...}` to `url`
 /// and expect a JSON response.  Streaming exec POSTs and reads NDJSON lines:
 /// `{"type":"stdout","data":"..."}`, `{"type":"stderr","data":"..."}`,
 /// `{"type":"exit","code":0}`.
+///
+/// See `docs/http-backend-protocol.md` for the full protocol specification,
+/// including the stateless backend pattern (where `dockerfile_content` is
+/// forwarded in the `run` request so backends need not persist state between
+/// `build` and `run` calls).
 pub struct HttpBackend {
     pub url: String,
     client: reqwest::Client,
+    /// Dockerfile content captured during `build()`, forwarded in `run()`.
+    /// Lets stateless backends (e.g. Modal functions) build+run atomically
+    /// without a distributed store between the two calls.
+    pending_dockerfile: std::sync::Mutex<Option<String>>,
 }
 
 impl HttpBackend {
@@ -494,6 +503,7 @@ impl HttpBackend {
                 .default_headers(headers)
                 .build()
                 .unwrap_or_default(),
+            pending_dockerfile: std::sync::Mutex::new(None),
         }
     }
 
@@ -531,6 +541,10 @@ impl ContainerBackend for HttpBackend {
     }
 
     async fn build(&self, dockerfile_content: &str, tag: &str) -> Result<(), String> {
+        // Store for forwarding in the subsequent run() call so that stateless
+        // backends can build+run atomically without persisting state themselves.
+        *self.pending_dockerfile.lock().unwrap() = Some(dockerfile_content.to_string());
+
         let resp = self
             .call(serde_json::json!({
                 "op": "build",
@@ -552,12 +566,14 @@ impl ContainerBackend for HttpBackend {
         image: &str,
         _host_workspace: &Path,
     ) -> Result<String, String> {
-        let resp = self
-            .call(serde_json::json!({
-                "op": "run",
-                "image": image,
-            }))
-            .await?;
+        let dockerfile = self.pending_dockerfile.lock().unwrap().take();
+
+        let mut body = serde_json::json!({"op": "run", "image": image});
+        if let Some(content) = dockerfile {
+            body["dockerfile_content"] = serde_json::Value::String(content);
+        }
+
+        let resp = self.call(body).await?;
 
         resp["container_id"]
             .as_str()
@@ -902,6 +918,119 @@ mod tests {
         assert!(
             json.get("context").is_none(),
             "must not send context (got {json})"
+        );
+    }
+
+    /// Spin up a two-request HTTP server. Returns the bound address and two
+    /// shared buffers populated with the captured request bodies in order.
+    async fn mock_http_server_two(
+        resp1: &'static str,
+        resp2: &'static str,
+    ) -> (
+        std::net::SocketAddr,
+        Arc<Mutex<Option<String>>>,
+        Arc<Mutex<Option<String>>>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let cap1: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let cap2: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let (c1, c2) = (cap1.clone(), cap2.clone());
+
+        tokio::spawn(async move {
+            for (cap, resp_body) in [(&c1, resp1), (&c2, resp2)] {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut buf = vec![0u8; 16384];
+                let n = stream.read(&mut buf).await.unwrap();
+                let raw = String::from_utf8_lossy(&buf[..n]);
+                if let Some(body) = raw.split("\r\n\r\n").nth(1) {
+                    *cap.lock().unwrap() = Some(body.to_string());
+                }
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    resp_body.len(),
+                    resp_body,
+                );
+                let _ = stream.write_all(resp.as_bytes()).await;
+            }
+        });
+
+        (addr, cap1, cap2)
+    }
+
+    /// After `build()` is called, `run()` must include `dockerfile_content` in
+    /// its request body so stateless backends can build+run atomically.
+    #[tokio::test]
+    async fn http_backend_run_forwards_dockerfile_content() {
+        let (addr, _build_cap, run_cap) =
+            mock_http_server_two(r#"{"ok":true}"#, r#"{"container_id":"test-123"}"#).await;
+
+        let backend = HttpBackend::new(format!("http://{addr}"));
+
+        backend
+            .build("FROM debian:bookworm-slim\n", "portlang-test:latest")
+            .await
+            .expect("build() should succeed");
+
+        let container_id = backend
+            .run(
+                "container-name",
+                "portlang-test:latest",
+                std::path::Path::new("/tmp"),
+            )
+            .await
+            .expect("run() should succeed");
+
+        assert_eq!(container_id, "test-123");
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let body_str = run_cap
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("server should have captured the run request body");
+        let json: serde_json::Value = serde_json::from_str(&body_str)
+            .unwrap_or_else(|e| panic!("run body is not valid JSON ({e}): {body_str:?}"));
+
+        assert_eq!(json["op"], "run");
+        assert_eq!(json["image"], "portlang-test:latest");
+        assert_eq!(
+            json["dockerfile_content"], "FROM debian:bookworm-slim\n",
+            "run() must forward dockerfile_content so stateless backends can build+run atomically"
+        );
+    }
+
+    /// When no prior `build()` was called (e.g. using a pre-built image),
+    /// `run()` must NOT include `dockerfile_content`.
+    #[tokio::test]
+    async fn http_backend_run_omits_dockerfile_without_build() {
+        let (addr, captured) = mock_http_server().await;
+        let backend = HttpBackend::new(format!("http://{addr}"));
+
+        // No build() call — simulate using a pre-built image tag.
+        let _ = backend
+            .run(
+                "container-name",
+                "my-prebuilt-image:latest",
+                std::path::Path::new("/tmp"),
+            )
+            .await;
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let body_str = captured
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("server should have captured a request body");
+        let json: serde_json::Value = serde_json::from_str(&body_str)
+            .unwrap_or_else(|e| panic!("run body is not valid JSON ({e}): {body_str:?}"));
+
+        assert_eq!(json["op"], "run");
+        assert!(
+            json.get("dockerfile_content").is_none(),
+            "run() must not include dockerfile_content when no build() was called (got {json})"
         );
     }
 

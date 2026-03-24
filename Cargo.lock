@@ -4070,7 +4070,7 @@ checksum = "c33a9471896f1c69cecef8d20cbe2f7accd12527ce60845ff44c153bb2a21b49"
 
 [[package]]
 name = "portlang"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4101,7 +4101,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-adapt"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "chrono",
  "portlang-core",
@@ -4112,7 +4112,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-check"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "glob",
  "portlang-config",
@@ -4122,7 +4122,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-config"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "anyhow",
  "dirs",
@@ -4153,7 +4153,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-core"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4166,7 +4166,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-lsp"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "glob",
  "portlang-config",
@@ -4181,14 +4181,14 @@ dependencies = [
 
 [[package]]
 name = "portlang-pipeline"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "portlang-core",
 ]
 
 [[package]]
 name = "portlang-provider-anthropic"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4202,14 +4202,14 @@ dependencies = [
 
 [[package]]
 name = "portlang-provider-openai"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "portlang-core",
 ]
 
 [[package]]
 name = "portlang-provider-openrouter"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4225,7 +4225,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-runner-claudecode"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4243,7 +4243,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-runtime"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4272,7 +4272,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-skills"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "anyhow",
  "dirs",
@@ -4288,7 +4288,7 @@ dependencies = [
 
 [[package]]
 name = "portlang-trajectory"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "anyhow",
  "chrono",

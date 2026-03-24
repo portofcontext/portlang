@@ -470,8 +470,8 @@ impl Drop for ContainerSandbox {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::traits::CommandOutput;
+    use super::*;
     use async_trait::async_trait;
     use std::sync::{Arc, Mutex};
 
@@ -482,7 +482,12 @@ mod tests {
     impl MockBackend {
         fn new() -> (Self, Arc<Mutex<Vec<(String, String)>>>) {
             let calls = Arc::new(Mutex::new(Vec::new()));
-            (Self { calls: calls.clone() }, calls)
+            (
+                Self {
+                    calls: calls.clone(),
+                },
+                calls,
+            )
         }
     }
 
@@ -513,11 +518,7 @@ mod tests {
         ) -> std::result::Result<String, String> {
             Ok("mock-container-id".to_string())
         }
-        async fn exec(
-            &self,
-            _id: &str,
-            _cmd: &str,
-        ) -> std::result::Result<CommandOutput, String> {
+        async fn exec(&self, _id: &str, _cmd: &str) -> std::result::Result<CommandOutput, String> {
             Ok(CommandOutput {
                 stdout: String::new(),
                 stderr: String::new(),
@@ -554,7 +555,11 @@ mod tests {
         .expect("build_from_dockerfile should succeed");
 
         let calls = calls.lock().unwrap();
-        assert_eq!(calls.len(), 1, "backend.build should be called exactly once");
+        assert_eq!(
+            calls.len(),
+            1,
+            "backend.build should be called exactly once"
+        );
 
         let (received_content, _tag) = &calls[0];
         assert_eq!(

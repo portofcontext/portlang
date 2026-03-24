@@ -416,7 +416,11 @@ async fn main() {
         .add_directive("portlang_runtime=info".parse().unwrap())
         .add_directive("portlang_trajectory=info".parse().unwrap());
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_filter(env_filter))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_filter(env_filter),
+        )
         .with(crate::progress::ProgressTracingLayer)
         .init();
 

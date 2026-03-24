@@ -484,7 +484,8 @@ async fn run_semantic_verifier(
             verifier.name.clone(),
             false,
             String::new(),
-            "embedding_url is set but no EMBEDDING_API_KEY or OPENAI_API_KEY found in environment".to_string(),
+            "embedding_url is set but no EMBEDDING_API_KEY or OPENAI_API_KEY found in environment"
+                .to_string(),
             1,
         );
     }
