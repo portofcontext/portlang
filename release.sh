@@ -22,7 +22,7 @@ fi
 echo "🚀 Triggering release workflow for version: $VERSION"
 echo ""
 echo "This will:"
-echo "  1. Build binary for Apple Silicon Mac"
+echo "  1. Build binary for Apple Silicon + Linux"
 echo "  2. Create a GitHub Release with artifacts"
 echo "  3. Publish to Homebrew tap at portofcontext/homebrew-tap"
 echo ""
