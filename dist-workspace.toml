@@ -39,5 +39,3 @@ tap = "portofcontext/homebrew-tap"
 publish-jobs = ["homebrew"]
 # Whether to install an updater program
 install-updater = false
-# Use Ubuntu 24.04 ARM runner for aarch64-linux (glibc 2.39 required by ort-sys prebuilt ORT binaries)
-github-custom-runners = { aarch64-unknown-linux-gnu = "ubuntu-24.04-arm" }

@@ -465,29 +465,32 @@ async fn run_semantic_verifier(
         }
     };
 
-    // No embedding_url → use local fastembed model (no API key required).
-    // embedding_url set → use that OpenAI-compatible HTTP endpoint.
-    let score_result = if let Some(url) = embedding_url {
-        let api_key = std::env::var("EMBEDDING_API_KEY")
-            .or_else(|_| std::env::var("OPENAI_API_KEY"))
-            .unwrap_or_default();
-
-        if api_key.is_empty() {
-            return VerifierResult::new(
-                verifier.name.clone(),
-                false,
-                String::new(),
-                "embedding_url is set but no EMBEDDING_API_KEY or OPENAI_API_KEY found in environment".to_string(),
-                1,
-            );
-        }
-
-        let model = embedding_model.unwrap_or("text-embedding-3-small");
-        get_remote_embeddings_score(&actual, expected, url, model, &api_key).await
-    } else {
-        let model = embedding_model.map(|s| s.to_string());
-        get_local_embeddings_score(actual.clone(), expected.to_string(), model).await
+    let Some(url) = embedding_url else {
+        return VerifierResult::new(
+            verifier.name.clone(),
+            false,
+            String::new(),
+            "semantic verifier requires embedding_url to be set".to_string(),
+            1,
+        );
     };
+
+    let api_key = std::env::var("EMBEDDING_API_KEY")
+        .or_else(|_| std::env::var("OPENAI_API_KEY"))
+        .unwrap_or_default();
+
+    if api_key.is_empty() {
+        return VerifierResult::new(
+            verifier.name.clone(),
+            false,
+            String::new(),
+            "embedding_url is set but no EMBEDDING_API_KEY or OPENAI_API_KEY found in environment".to_string(),
+            1,
+        );
+    }
+
+    let model = embedding_model.unwrap_or("text-embedding-3-small");
+    let score_result = get_remote_embeddings_score(&actual, expected, url, model, &api_key).await;
 
     match score_result {
         Ok(score) => {
@@ -520,61 +523,6 @@ async fn run_semantic_verifier(
             1,
         ),
     }
-}
-
-/// Embed locally using fastembed (BAAI/bge-small-en-v1.5 by default).
-/// Downloads and caches the model from HuggingFace on first use (~67 MB).
-/// Supported model names: "bge-small-en-v1.5" (default), "all-minilm-l6-v2", "nomic-embed-text-v1.5".
-async fn get_local_embeddings_score(
-    actual: String,
-    expected: String,
-    model_name: Option<String>,
-) -> Result<f64, String> {
-    tokio::task::spawn_blocking(move || {
-        use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-
-        let embedding_model = match model_name.as_deref() {
-            None | Some("bge-small-en-v1.5") => EmbeddingModel::BGESmallENV15,
-            Some("all-minilm-l6-v2") => EmbeddingModel::AllMiniLML6V2,
-            Some("nomic-embed-text-v1.5") => EmbeddingModel::NomicEmbedTextV15,
-            Some(other) => {
-                return Err(format!(
-                    "Unknown local embedding model '{}'. Supported: bge-small-en-v1.5 (default), all-minilm-l6-v2, nomic-embed-text-v1.5. Set embedding_url to use an external API.",
-                    other
-                ))
-            }
-        };
-
-        // Cache models in ~/.cache/portlang/embeddings (or OS equivalent).
-        // Falls back to a temp dir rather than the current working directory.
-        let cache_dir = dirs::cache_dir()
-            .unwrap_or_else(std::env::temp_dir)
-            .join("portlang")
-            .join("embeddings");
-
-        let mut model = TextEmbedding::try_new(
-            InitOptions::new(embedding_model).with_cache_dir(cache_dir),
-        )
-        .map_err(|e| format!("Failed to load embedding model: {}", e))?;
-
-        let embeddings = model
-            .embed(vec![actual.trim(), expected.trim()], None)
-            .map_err(|e| format!("Embedding failed: {}", e))?;
-
-        if embeddings.len() < 2 {
-            return Err(format!(
-                "Expected 2 embeddings, got {}",
-                embeddings.len()
-            ));
-        }
-
-        let vec_a: Vec<f64> = embeddings[0].iter().map(|&x| x as f64).collect();
-        let vec_b: Vec<f64> = embeddings[1].iter().map(|&x| x as f64).collect();
-
-        Ok(cosine_similarity(&vec_a, &vec_b))
-    })
-    .await
-    .map_err(|e| format!("Embedding task panicked: {}", e))?
 }
 
 /// Embed via an OpenAI-compatible HTTP endpoint.
