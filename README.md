@@ -19,15 +19,22 @@ What enters the context window determines how reliably your agent works. portlan
 
 ## Install
 
-```bash
-brew tap portofcontext/homebrew-tap
-brew install portlang
+**macOS (Homebrew):**
+
+```sh
+brew install portofcontext/tap/portlang
+```
+
+**Linux:**
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/portofcontext/portlang/releases/latest/download/portlang-installer.sh | sh
 ```
 
 ```bash
-export ANTHROPIC_API_KEY=... 
-# or
 export OPENROUTER_API_KEY=...
+# or
+export ANTHROPIC_API_KEY=... 
 
 portlang init --install --start
 
