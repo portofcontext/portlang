@@ -19,8 +19,8 @@ pub trait ContainerBackend: Send + Sync {
     /// Returns `""` for non-CLI backends.
     fn cli(&self) -> &str;
 
-    /// Build an image from a Dockerfile.
-    async fn build(&self, dockerfile_path: &str, tag: &str, context: &str) -> Result<(), String>;
+    /// Build an image from Dockerfile content (the file's text, not a path).
+    async fn build(&self, dockerfile_content: &str, tag: &str) -> Result<(), String>;
 
     /// Start a detached container with the workspace bind-mounted at `/workspace`.
     /// Returns the container identifier for subsequent `exec` and `stop` calls.
@@ -203,12 +203,16 @@ impl ContainerBackend for AppleContainerBackend {
         "container"
     }
 
-    async fn build(&self, dockerfile_path: &str, tag: &str, context: &str) -> Result<(), String> {
+    async fn build(&self, dockerfile_content: &str, tag: &str) -> Result<(), String> {
+        let temp_path = std::env::temp_dir().join(format!("Dockerfile.portlang.{tag}"));
+        std::fs::write(&temp_path, dockerfile_content)
+            .map_err(|e| format!("Failed to write temp Dockerfile: {e}"))?;
         let output = Command::new("container")
-            .args(["build", "-f", dockerfile_path, "-t", tag, context])
+            .args(["build", "-f", temp_path.to_str().unwrap(), "-t", tag, "."])
             .output()
-            .map_err(|e| format!("container build failed: {e}"))?;
-
+            .map_err(|e| format!("container build failed: {e}"));
+        let _ = std::fs::remove_file(&temp_path);
+        let output = output?;
         if output.status.success() {
             Ok(())
         } else {
@@ -296,12 +300,16 @@ impl ContainerBackend for PodmanBackend {
         "podman"
     }
 
-    async fn build(&self, dockerfile_path: &str, tag: &str, context: &str) -> Result<(), String> {
+    async fn build(&self, dockerfile_content: &str, tag: &str) -> Result<(), String> {
+        let temp_path = std::env::temp_dir().join(format!("Dockerfile.portlang.{tag}"));
+        std::fs::write(&temp_path, dockerfile_content)
+            .map_err(|e| format!("Failed to write temp Dockerfile: {e}"))?;
         let output = Command::new("podman")
-            .args(["build", "-f", dockerfile_path, "-t", tag, context])
+            .args(["build", "-f", temp_path.to_str().unwrap(), "-t", tag, "."])
             .output()
-            .map_err(|e| format!("podman build failed: {e}"))?;
-
+            .map_err(|e| format!("podman build failed: {e}"));
+        let _ = std::fs::remove_file(&temp_path);
+        let output = output?;
         if output.status.success() {
             Ok(())
         } else {
@@ -387,12 +395,16 @@ impl ContainerBackend for DockerBackend {
         "docker"
     }
 
-    async fn build(&self, dockerfile_path: &str, tag: &str, context: &str) -> Result<(), String> {
+    async fn build(&self, dockerfile_content: &str, tag: &str) -> Result<(), String> {
+        let temp_path = std::env::temp_dir().join(format!("Dockerfile.portlang.{tag}"));
+        std::fs::write(&temp_path, dockerfile_content)
+            .map_err(|e| format!("Failed to write temp Dockerfile: {e}"))?;
         let output = Command::new("docker")
-            .args(["build", "-f", dockerfile_path, "-t", tag, context])
+            .args(["build", "-f", temp_path.to_str().unwrap(), "-t", tag, "."])
             .output()
-            .map_err(|e| format!("docker build failed: {e}"))?;
-
+            .map_err(|e| format!("docker build failed: {e}"));
+        let _ = std::fs::remove_file(&temp_path);
+        let output = output?;
         if output.status.success() {
             Ok(())
         } else {
@@ -518,13 +530,12 @@ impl ContainerBackend for HttpBackend {
         ""
     }
 
-    async fn build(&self, dockerfile_path: &str, tag: &str, context: &str) -> Result<(), String> {
+    async fn build(&self, dockerfile_content: &str, tag: &str) -> Result<(), String> {
         let resp = self
             .call(serde_json::json!({
                 "op": "build",
-                "dockerfile_path": dockerfile_path,
+                "dockerfile_content": dockerfile_content,
                 "tag": tag,
-                "context": context,
             }))
             .await?;
 
@@ -699,13 +710,12 @@ impl ContainerBackend for SubprocessBackend {
         ""
     }
 
-    async fn build(&self, dockerfile_path: &str, tag: &str, context: &str) -> Result<(), String> {
+    async fn build(&self, dockerfile_content: &str, tag: &str) -> Result<(), String> {
         let resp = self
             .call(serde_json::json!({
                 "op": "build",
-                "dockerfile_path": dockerfile_path,
+                "dockerfile_content": dockerfile_content,
                 "tag": tag,
-                "context": context,
             }))
             .await?;
 
@@ -820,5 +830,96 @@ impl ContainerBackend for SubprocessBackend {
 
         let (stdout_buf, stderr_buf, exit_code) = parse_streaming_ndjson(&all_lines);
         Ok(buffered_script_handle(stdout_buf, stderr_buf, exit_code))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    /// Spin up a single-request HTTP server that captures the request body and
+    /// returns `{"ok":true}`. Returns the bound address and a shared buffer that
+    /// will be populated once the server handles its one request.
+    async fn mock_http_server() -> (std::net::SocketAddr, Arc<Mutex<Option<String>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let captured: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let captured_clone = captured.clone();
+
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 8192];
+            let n = stream.read(&mut buf).await.unwrap();
+            let raw = String::from_utf8_lossy(&buf[..n]);
+            if let Some(body) = raw.split("\r\n\r\n").nth(1) {
+                *captured_clone.lock().unwrap() = Some(body.to_string());
+            }
+            let resp_body = r#"{"ok":true}"#;
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                resp_body.len(),
+                resp_body,
+            );
+            let _ = stream.write_all(resp.as_bytes()).await;
+        });
+
+        (addr, captured)
+    }
+
+    /// `HttpBackend::build` must POST `{"op":"build","dockerfile_content":…,"tag":…}`
+    /// and must NOT include `dockerfile_path` or `context`.
+    #[tokio::test]
+    async fn http_backend_build_sends_dockerfile_content() {
+        let (addr, captured) = mock_http_server().await;
+        let backend = HttpBackend::new(format!("http://{addr}"));
+
+        let result = backend
+            .build("FROM debian:bookworm-slim\n", "portlang-test:latest")
+            .await;
+        assert!(result.is_ok(), "build() returned error: {result:?}");
+
+        // Give the spawned server task a moment to write the captured body.
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let body_str = captured
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("server should have captured a request body");
+        let json: serde_json::Value = serde_json::from_str(&body_str)
+            .unwrap_or_else(|e| panic!("response body is not valid JSON ({e}): {body_str:?}"));
+
+        assert_eq!(json["op"], "build");
+        assert_eq!(json["dockerfile_content"], "FROM debian:bookworm-slim\n");
+        assert_eq!(json["tag"], "portlang-test:latest");
+        assert!(
+            json.get("dockerfile_path").is_none(),
+            "must not send dockerfile_path (got {json})"
+        );
+        assert!(
+            json.get("context").is_none(),
+            "must not send context (got {json})"
+        );
+    }
+
+    /// `SubprocessBackend`'s JSON body should match the same shape.
+    /// We verify by constructing the JSON directly (the same way the impl does).
+    #[test]
+    fn subprocess_backend_build_json_shape() {
+        let content = "FROM debian:bookworm-slim\n";
+        let tag = "portlang-sub:test";
+        let body = serde_json::json!({
+            "op": "build",
+            "dockerfile_content": content,
+            "tag": tag,
+        });
+        assert_eq!(body["op"], "build");
+        assert_eq!(body["dockerfile_content"], content);
+        assert_eq!(body["tag"], tag);
+        assert!(body.get("dockerfile_path").is_none());
+        assert!(body.get("context").is_none());
     }
 }

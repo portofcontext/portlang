@@ -112,7 +112,7 @@ impl ContainerSandbox {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
-        let content = std::fs::read(dockerfile_path).map_err(|e| {
+        let content = std::fs::read_to_string(dockerfile_path).map_err(|e| {
             SandboxError::InitError(format!(
                 "Failed to read Dockerfile '{}': {}",
                 dockerfile_path, e
@@ -130,7 +130,7 @@ impl ContainerSandbox {
         }
 
         backend
-            .build(dockerfile_path, &image_tag, ".")
+            .build(&content, &image_tag)
             .await
             .map_err(|e| SandboxError::InitError(format!("Dockerfile build failed: {e}")))?;
 
@@ -165,25 +165,15 @@ impl ContainerSandbox {
         }
 
         let dockerfile_content = Self::build_dockerfile_content(&base_image, packages);
-        let temp_dockerfile = std::env::temp_dir().join(format!("Dockerfile.{}", composite_tag));
-        std::fs::write(&temp_dockerfile, &dockerfile_content).map_err(|e| {
-            SandboxError::InitError(format!("Failed to write composite Dockerfile: {e}"))
-        })?;
 
         tracing::info!(
             "Building composite image (Dockerfile + packages {:?}): {}",
             packages,
             composite_tag
         );
-        let result = backend
-            .build(
-                temp_dockerfile.to_str().unwrap(),
-                &composite_tag,
-                std::env::temp_dir().to_str().unwrap(),
-            )
-            .await;
-        let _ = std::fs::remove_file(&temp_dockerfile);
-        result
+        backend
+            .build(&dockerfile_content, &composite_tag)
+            .await
             .map_err(|e| SandboxError::InitError(format!("Composite image build failed: {e}")))?;
 
         let _ = std::fs::write(&marker, "");
@@ -198,20 +188,10 @@ impl ContainerSandbox {
     ) -> Result<String> {
         let dockerfile_content = Self::build_dockerfile_content("debian:bookworm-slim", packages);
 
-        let temp_dockerfile = std::env::temp_dir().join(format!("Dockerfile.{}", tag));
-        std::fs::write(&temp_dockerfile, dockerfile_content).map_err(|e| {
-            SandboxError::InitError(format!("Failed to write temp Dockerfile: {e}"))
-        })?;
-
-        let result = backend
-            .build(
-                temp_dockerfile.to_str().unwrap(),
-                tag,
-                std::env::temp_dir().to_str().unwrap(),
-            )
-            .await;
-        let _ = std::fs::remove_file(&temp_dockerfile);
-        result.map_err(|e| SandboxError::InitError(format!("Image build failed: {e}")))?;
+        backend
+            .build(&dockerfile_content, tag)
+            .await
+            .map_err(|e| SandboxError::InitError(format!("Image build failed: {e}")))?;
 
         Ok(tag.to_string())
     }
@@ -484,6 +464,106 @@ impl Drop for ContainerSandbox {
             "Stopped {} container {}",
             self.backend.name(),
             self.container_id
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::traits::CommandOutput;
+    use async_trait::async_trait;
+    use std::sync::{Arc, Mutex};
+
+    struct MockBackend {
+        calls: Arc<Mutex<Vec<(String, String)>>>,
+    }
+
+    impl MockBackend {
+        fn new() -> (Self, Arc<Mutex<Vec<(String, String)>>>) {
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            (Self { calls: calls.clone() }, calls)
+        }
+    }
+
+    #[async_trait]
+    impl ContainerBackend for MockBackend {
+        fn name(&self) -> &str {
+            "mock"
+        }
+        fn cli(&self) -> &str {
+            ""
+        }
+        async fn build(
+            &self,
+            dockerfile_content: &str,
+            tag: &str,
+        ) -> std::result::Result<(), String> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push((dockerfile_content.to_string(), tag.to_string()));
+            Ok(())
+        }
+        async fn run(
+            &self,
+            _name: &str,
+            _image: &str,
+            _workspace: &std::path::Path,
+        ) -> std::result::Result<String, String> {
+            Ok("mock-container-id".to_string())
+        }
+        async fn exec(
+            &self,
+            _id: &str,
+            _cmd: &str,
+        ) -> std::result::Result<CommandOutput, String> {
+            Ok(CommandOutput {
+                stdout: String::new(),
+                stderr: String::new(),
+                exit_code: 0,
+                success: true,
+            })
+        }
+        fn stop(&self, _id: &str) {}
+    }
+
+    /// `build_from_dockerfile` must read the Dockerfile from disk and pass its
+    /// *content* to `backend.build()`, not the file path.
+    #[tokio::test]
+    async fn build_from_dockerfile_passes_content_not_path() {
+        // Use a nanosecond timestamp in the content so the hash is unique per
+        // test run and we never accidentally hit a stale marker file.
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let expected_content = format!("FROM debian:bookworm-slim\n# test-run={unique}\n");
+
+        let dir = tempfile::tempdir().unwrap();
+        let dockerfile_path = dir.path().join("Dockerfile");
+        std::fs::write(&dockerfile_path, &expected_content).unwrap();
+
+        let (mock, calls) = MockBackend::new();
+        ContainerSandbox::build_from_dockerfile(
+            &mock,
+            dockerfile_path.to_str().unwrap(),
+            "ignored-tag",
+        )
+        .await
+        .expect("build_from_dockerfile should succeed");
+
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 1, "backend.build should be called exactly once");
+
+        let (received_content, _tag) = &calls[0];
+        assert_eq!(
+            received_content, &expected_content,
+            "backend received file content, not the path"
+        );
+        assert!(
+            !received_content.contains(dockerfile_path.to_str().unwrap()),
+            "content must not contain the file path"
         );
     }
 }
